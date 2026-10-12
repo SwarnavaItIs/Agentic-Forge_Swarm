@@ -284,6 +284,126 @@ func TestSchedulerHistoryFailureRollsBackEveryState(t *testing.T) {
 		t.Fatal("rollback lost eligibility")
 	}
 }
+
+func TestSchedulerLaterHistoryFailureRollsBackAllTransitions(t *testing.T) {
+	f := setup(t)
+	in := workflow.CreateInput{Name: "later history rollback", Tasks: []workflow.TaskDefinition{
+		{Key: "a", Kind: "noop"}, {Key: "b", Kind: "noop"}, {Key: "c", Kind: "noop"},
+	}}
+	r := newGraph(t, f, "later-event-failure", in)
+	before := snapshot(t, f, r.ID)
+	// Creation is event 1. Event 2 is inserted successfully before event 3
+	// fails, so this exercises rollback of already-written history and states.
+	exec(t, f, `CREATE FUNCTION reject_later_ready() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='task.ready' AND NEW.sequence=3 THEN RAISE EXCEPTION 'test later history failure'; END IF; RETURN NEW; END $$`)
+	exec(t, f, `CREATE TRIGGER reject_later_ready BEFORE INSERT ON workflow_events FOR EACH ROW EXECUTE FUNCTION reject_later_ready()`)
+	n, err := f.s1.Reconcile(f.ctx, r.ID)
+	var pgErr *pgconn.PgError
+	if n != 0 || !errors.As(err, &pgErr) || pgErr.Code != "P0001" || pgErr.Message != "test later history failure" {
+		t.Fatal("later-event injection was not reached or partial success was reported", n, err)
+	}
+	if !reflect.DeepEqual(before, snapshot(t, f, r.ID)) || len(history(t, f, r.ID)) != 1 || scalar(t, f, `SELECT last_event_sequence FROM workflows WHERE id=$1`, r.ID) != 1 {
+		t.Fatal("earlier transitions/history survived transaction failure")
+	}
+	exec(t, f, `DROP TRIGGER reject_later_ready ON workflow_events`)
+	if reconcile(t, f, r.ID) != 3 || snapshot(t, f, r.ID).Version != 2 || len(history(t, f, r.ID)) != 4 {
+		t.Fatal("retry lost eligibility or left an event-sequence gap")
+	}
+}
+
+func TestMaximumGraphDurabilityAndReadinessHistoryPagination(t *testing.T) {
+	f := setup(t)
+	in := workflow.CreateInput{Name: "maximum graph", Tasks: make([]workflow.TaskDefinition, 100)}
+	for i := range in.Tasks {
+		in.Tasks[i] = workflow.TaskDefinition{Key: fmt.Sprintf("n%d", i), Kind: "noop"}
+	}
+	for i := 1; i < 45; i++ {
+		for j := 0; j < i; j++ {
+			in.Tasks[i].DependsOn = append(in.Tasks[i].DependsOn, in.Tasks[j].Key)
+		}
+	}
+	for j := 0; j < 10; j++ {
+		in.Tasks[45].DependsOn = append(in.Tasks[45].DependsOn, in.Tasks[j].Key)
+	}
+	r := newGraph(t, f, "maximum-graph", in)
+	graph := snapshot(t, f, r.ID)
+	if len(graph.Nodes) != 100 || len(graph.Edges) != 1000 || scalar(t, f, `SELECT count(*) FROM task_dependencies WHERE workflow_id=$1`, r.ID) != 1000 {
+		t.Fatal("graph at accepted limits was truncated or not durable")
+	}
+	keys := make(map[uuid.UUID]string, len(graph.Nodes))
+	want := make(map[string]map[string]bool, len(in.Tasks))
+	got := make(map[string]map[string]bool, len(in.Tasks))
+	for i, node := range graph.Nodes {
+		if node.Position != i || node.Key != in.Tasks[i].Key {
+			t.Fatal("display order changed at the task limit")
+		}
+		keys[node.ID] = node.Key
+		want[node.Key], got[node.Key] = make(map[string]bool), make(map[string]bool)
+		for _, predecessor := range in.Tasks[i].DependsOn {
+			want[node.Key][predecessor] = true
+		}
+	}
+	for _, edge := range graph.Edges {
+		key, exists := keys[edge.TaskID]
+		predecessor, predecessorExists := keys[edge.DependsOnTaskID]
+		if !exists || !predecessorExists {
+			t.Fatal("graph edge lost a node")
+		}
+		got[key][predecessor] = true
+	}
+	if !reflect.DeepEqual(want, got) || reconcile(t, f, r.ID) != 55 {
+		t.Fatal("stored dependencies or root eligibility changed at the graph limit")
+	}
+
+	// Independent roots emit 100 readiness events in one logical mutation,
+	// exceeding one HTTP event page once workflow.created is included.
+	roots := workflow.CreateInput{Name: "maximum independent roots", Tasks: make([]workflow.TaskDefinition, 100)}
+	for i := range roots.Tasks {
+		roots.Tasks[i] = workflow.TaskDefinition{Key: fmt.Sprintf("r%d", i), Kind: "noop"}
+	}
+	rootReceipt := newGraph(t, f, "maximum-roots", roots)
+	if reconcile(t, f, rootReceipt.ID) != 100 {
+		t.Fatal("not every independent root became eligible")
+	}
+	rootGraph := snapshot(t, f, rootReceipt.ID)
+	if rootGraph.Status != workflow.Pending || rootGraph.Version != 2 {
+		t.Fatal("readiness was counted as success or 100 separate mutations")
+	}
+	for _, node := range rootGraph.Nodes {
+		if node.Status != workflow.Ready {
+			t.Fatal("an independent root lost eligibility")
+		}
+	}
+	page, err := f.s1.Events(f.ctx, rootReceipt.ID, 0, 100)
+	if err != nil || len(page.Events) != 100 || page.NextAfter != 100 {
+		t.Fatal("first full history page", err)
+	}
+	for i, event := range page.Events {
+		if event.Sequence != int64(i+1) {
+			t.Fatal("history ordering changed across the page boundary")
+		}
+	}
+	tail, err := f.s2.Events(f.ctx, rootReceipt.ID, page.NextAfter, 100)
+	if err != nil || len(tail.Events) != 1 || tail.NextAfter != 101 || tail.Events[0].Sequence != 101 || tail.Events[0].EventType != "task.ready" {
+		t.Fatal("last readiness event was lost or repeated", err)
+	}
+	empty, err := f.s1.Events(f.ctx, rootReceipt.ID, tail.NextAfter, 100)
+	if err != nil || len(empty.Events) != 0 || empty.NextAfter != 101 || reconcile(t, f, rootReceipt.ID) != 0 || scalar(t, f, `SELECT count(*) FROM workflow_events WHERE workflow_id=$1`, rootReceipt.ID) != 101 {
+		t.Fatal("exhausted cursor or repeated reconciliation changed history", err)
+	}
+
+	overEdges := in
+	overEdges.Tasks = append([]workflow.TaskDefinition(nil), in.Tasks...)
+	overEdges.Tasks[45].DependsOn = append(append([]string(nil), in.Tasks[45].DependsOn...), "n10")
+	if _, err := f.s1.Create(f.ctx, "too-many-edges", overEdges); !errors.Is(err, workflow.ErrInvalid) {
+		t.Fatal("1,001 edges accepted", err)
+	}
+	tooManyTasks := roots
+	tooManyTasks.Tasks = append(append([]workflow.TaskDefinition(nil), roots.Tasks...), workflow.TaskDefinition{Key: "extra", Kind: "noop"})
+	if _, err := f.s2.Create(f.ctx, "too-many-tasks", tooManyTasks); !errors.Is(err, workflow.ErrInvalid) || scalar(t, f, `SELECT count(*) FROM workflows`) != 2 {
+		t.Fatal("oversized graph wrote workflow data", err)
+	}
+}
+
 func TestFailedAncestorBlocksDescendantsIndependentBranchContinues(t *testing.T) {
 	f := setup(t)
 	in := diamond(t)

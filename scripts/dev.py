@@ -39,6 +39,7 @@ def timestamp():
 def sanitize(text):
     text = re.sub(r"postgres(?:ql)?://[^\s\"']+", "[REDACTED_DATABASE_URL]", text)
     text = re.sub(r"(?i)(password\s*=\s*)([^\s\"']+)", r"\1[REDACTED]", text)
+    text = re.sub(r"(?i)(Bearer\s+)[A-Za-z0-9._:-]+",r"\1[REDACTED]",text)
     return text[-131072:]
 
 
@@ -116,6 +117,8 @@ def build():
     run(["go", "build", "-o", BIN.parent / ("migrate.exe" if os.name == "nt" else "migrate"), "./cmd/migrate"], label="build-migrate")
     if (ROOT / "cmd/scheduler").exists():
         run(["go", "build", "-o", BIN.parent / ("scheduler.exe" if os.name == "nt" else "scheduler"), "./cmd/scheduler"], label="build-scheduler")
+    for name in ["coordinator","relay","worker"]:
+        if (ROOT / "cmd" / name).exists():run(["go","build","-o",BIN.parent / (name+".exe" if os.name=="nt" else name),"./cmd/"+name],label="build-"+name)
 
 
 def race(args, env=None, container=None, label="race"):
@@ -130,11 +133,12 @@ def race(args, env=None, container=None, label="race"):
               "-e", "GOCACHE=/src/.cache/linux-build", "-e", "GOMODCACHE=/src/.cache/go-mod",
               "-e", "GOTELEMETRY=off", "-e", "GOTOOLCHAIN=local"]
     if container:
-        docker += ["--network", env["TEST_DOCKER_NETWORK"]]
+        docker += ["--network", env.get("TEST_GO_NETWORK",env["TEST_DOCKER_NETWORK"])]
         test_url = re.sub(r"127\.0\.0\.1:\d+/", "db:5432/", env["TEST_DATABASE_URL"])
         docker += ["-e", f"TEST_DATABASE_URL={test_url}", "-e", f"TEST_RESOURCE_TOKEN={env['TEST_RESOURCE_TOKEN']}"]
+        if "TEST_NATS_URL" in env:docker += ["-e","TEST_NATS_URL","-e","TEST_NATS_TOKEN","-e","TEST_NATS_NAMESPACE"]
     try:
-        return run([*docker, GO_IMAGE, "go", "test", "-race", "-timeout=120s", *args], timeout=300, label=label)
+        return run([*docker, GO_IMAGE, "go", "test", "-race", "-timeout=120s", *args],env=env,timeout=300, label=label)
     finally:
         code, owner = run(["docker", "inspect", "--format", '{{ index .Config.Labels "forgeswarm.verification" }}', name],
                           check=False, timeout=15, quiet=True, label="go-ownership")
@@ -258,7 +262,7 @@ def smoke():
 
 def fingerprint():
     paths = [ROOT / f for f in ["go.mod", "go.sum", ".env.example", ".gitignore", "Makefile", "compose.yaml"]]
-    for folder in ["cmd", "internal", "migrations", "tests", "scripts", ".github"]:
+    for folder in ["cmd", "internal", "migrations", "tests", "scripts", ".github","api","config"]:
         paths.extend(p for p in (ROOT / folder).rglob("*") if p.is_file() and "__pycache__" not in p.parts)
     digest = hashlib.sha256()
     for path in sorted(paths):
@@ -314,7 +318,7 @@ def progress(status, failure=None):
 
 
 def fmt_check():
-    paths = sorted(str(p.relative_to(ROOT)) for folder in ["cmd", "internal", "migrations", "tests"] for p in (ROOT / folder).rglob("*.go"))
+    paths = sorted(str(p.relative_to(ROOT)) for folder in ["cmd", "internal", "migrations", "tests","api"] for p in (ROOT / folder).rglob("*.go"))
     _, output = run(["gofmt", "-l", *paths], label="format")
     if output.strip():
         raise RuntimeError("format check failed; run fmt")
@@ -325,12 +329,28 @@ def main():
     os.chdir(ROOT)
     (ROOT / ".cache/go-tmp").mkdir(parents=True, exist_ok=True)
     command = sys.argv[1] if len(sys.argv) == 2 else "help"
+    if command=="verify-stage-03":
+        import stage03
+        stage03.verify()
+        return
+    if command in {"proto-check","proto-generate"}:
+        import proto
+        proto.generate(command=="proto-check")
+        return
     if command == "verify-stage-02":
         import stage02
         stage02.verify()
         return
     if command == "help":
-        print("ForgeSwarm Stages 01/02: make <command> or python scripts/dev.py <command>\n"
+        print("ForgeSwarm Stages 01/02/03: make <command> or python scripts/dev.py <command>\n"
+              "Stage 03: verify-stage-03, proto-check/proto-generate, run-coordinator, run-relay, run-worker.\n"
+              "Migrate first, then run API/coordinator/scheduler/relay and >=2 workers.\n"
+              "Workers require WORKER_TOKEN matching RPC_KEYS_FILE identities; NATS_TOKEN is required.\n"
+              "RPC/NATS require verified TLS; INSECURE_LOCAL=true permits loopback addresses only.\n"
+              "Defaults: 2 slots/worker, 4 total, 3 attempts, 3s leases; only noop/delay (1-30000ms).\n"
+              "Normalization v1/v2 hashes stay frozen; delay input uses v3.\n"
+              "Outbox + file-backed JetStream provide at-least-once dispatch with fenced results.\n"
+              "Single-node broker disk loss/READY age republish are Stage 04 gaps; no measured throughput claim.\n"
               "help, db-up, db-down (keeps data), migrate-up, migrate-status, run, fmt, vet, test,\n"
               "test-race, test-integration (requires Docker; never skips), build, smoke, verify-stage-01,\n"
               "verify-stage-02, run-scheduler\n"
@@ -343,7 +363,7 @@ def main():
               "PENDING -> READY means eligibility only; no tasks execute in Stage 02.\n"
               "Parent-row locks serialize mutation/history; SKIP LOCKED has no strict fairness guarantee.\n"
               "SCHEDULER_BATCH_SIZE=16 (1-100), SCHEDULER_INTERVAL=1s (50ms-1m), SCHEDULER_SCAN_TIMEOUT=5s (50ms-30s).\n"
-              "RUNNING transitions are reserved for Stage 03 claiming, with no completion endpoint.\n"
+              "Stage 03 claims enter RUNNING; accepted outcomes use authenticated worker RPCs.\n"
               "Test-only diamond fixture tests/fixtures/diamond.json is demonstrated in verify-stage-02\n"
               "using explicit terminal seeds in uniquely owned disposable databases only.\n"
               "Creation keys have local single-user scope and survive for the record lifetime.\n"
@@ -381,7 +401,7 @@ def main():
         progress("verified_local")
         print("stage 01 verified_local; see .forgeswarm/progress.json and artifacts/verification/stage-01/results.json")
     elif command == "fmt":
-        paths = sorted(str(p.relative_to(ROOT)) for folder in ["cmd", "internal", "migrations", "tests"] for p in (ROOT / folder).rglob("*.go"))
+        paths = sorted(str(p.relative_to(ROOT)) for folder in ["cmd", "internal", "migrations", "tests","api"] for p in (ROOT / folder).rglob("*.go"))
         run(["gofmt", "-w", *paths])
     elif command == "test-race":
         race(["-count=1", "./..."])
@@ -398,6 +418,8 @@ def main():
         smoke()
     elif command == "run-scheduler":
         raise SystemExit(subprocess.call(["go", "run", "./cmd/scheduler"], cwd=ROOT, env=ENV))
+    elif command in {"run-coordinator","run-relay","run-worker"}:
+        raise SystemExit(subprocess.call(["go","run","./cmd/"+command.removeprefix("run-")],cwd=ROOT,env=ENV))
     elif command == "run":
         # Inherit terminal signals for the actual API process.
         raise SystemExit(subprocess.call(["go", "run", "./cmd/api"], cwd=ROOT, env=ENV))

@@ -4,7 +4,7 @@ import "github.com/google/uuid"
 
 const (
 	Ready     = "READY"
-	Running   = "RUNNING" // future claiming only; stage 02 never emits this transition
+	Running   = "RUNNING" // accepted durable ownership; execution can begin later
 	Succeeded = "SUCCEEDED"
 	Failed    = "FAILED"
 	Blocked   = "BLOCKED"
@@ -107,7 +107,7 @@ func Reconcile(graph Graph) (Decision, error) {
 	if graph.Status == Cancelled || graph.Status == Succeeded || graph.Status == Failed {
 		return decision, nil
 	}
-	if graph.Status != Pending {
+	if graph.Status != Pending && graph.Status != Running {
 		return Decision{}, ErrState
 	}
 	definitions := make([]TaskDefinition, len(graph.Nodes))

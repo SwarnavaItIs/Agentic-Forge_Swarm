@@ -92,10 +92,14 @@ type ScanResult struct {
 	Transitions int
 }
 
-func reconcileLocked(ctx context.Context, tx pgx.Tx, parent lockedWorkflow) (int, error) {
+func (s *Store) reconcileLocked(ctx context.Context, tx pgx.Tx, parent lockedWorkflow) (int, error) {
 	graph := workflow.Graph{ID: parent.id, Status: parent.status, Version: parent.version}
-	if parent.status != workflow.Pending {
+	if parent.status != workflow.Pending && parent.status != workflow.Running {
 		return 0, nil
+	}
+	expired, err := s.expireLocked(ctx, tx, &parent)
+	if err != nil {
+		return 0, err
 	}
 	if err := readGraph(ctx, tx, &graph); err != nil {
 		return 0, err
@@ -118,12 +122,21 @@ func reconcileLocked(ctx context.Context, tx pgx.Tx, parent lockedWorkflow) (int
 		return classify(err)
 	}
 	for _, transition := range decision.Transitions {
-		tag, err := tx.Exec(ctx, `UPDATE tasks SET status=$3,updated_at=$4 WHERE workflow_id=$1 AND id=$2 AND status=$5`, parent.id, transition.TaskID, transition.To, at, transition.From)
+		tag, err := tx.Exec(ctx, `UPDATE tasks SET status=$3,updated_at=$4,dispatch_generation=dispatch_generation+CASE WHEN $3='READY' THEN 1 ELSE 0 END WHERE workflow_id=$1 AND id=$2 AND status=$5`, parent.id, transition.TaskID, transition.To, at, transition.From)
 		if err != nil {
 			return 0, classify(err)
 		}
 		if tag.RowsAffected() != 1 {
 			return 0, workflow.ErrState
+		}
+		if transition.To == workflow.Ready {
+			var gen int64
+			if err = tx.QueryRow(ctx, `SELECT dispatch_generation FROM tasks WHERE id=$1`, transition.TaskID).Scan(&gen); err != nil {
+				return 0, classify(err)
+			}
+			if err = dispatch(ctx, tx, transition.TaskID, gen); err != nil {
+				return 0, err
+			}
 		}
 		kind := "task.ready"
 		if transition.To == workflow.Blocked {
@@ -133,8 +146,8 @@ func reconcileLocked(ctx context.Context, tx pgx.Tx, parent lockedWorkflow) (int
 			return 0, err
 		}
 	}
-	changed := len(decision.Transitions) > 0 || decision.Status != parent.status
-	count := len(decision.Transitions)
+	changed := expired > 0 || len(decision.Transitions) > 0 || decision.Status != parent.status
+	count := expired + len(decision.Transitions)
 	if decision.Status != parent.status {
 		kind := "workflow.succeeded"
 		if decision.Status == workflow.Failed {
@@ -166,7 +179,7 @@ func (s *Store) Reconcile(ctx context.Context, id uuid.UUID) (int, error) {
 	if err != nil {
 		return 0, classify(err)
 	}
-	count, err := reconcileLocked(ctx, tx, parent)
+	count, err := s.reconcileLocked(ctx, tx, parent)
 	if err != nil {
 		return 0, err
 	}
@@ -192,7 +205,7 @@ func (s *Store) ReconcileBatch(ctx context.Context, batch int) (ScanResult, erro
 		return ScanResult{}, classify(err)
 	}
 	defer rollback(tx)
-	rows, err := tx.Query(ctx, `SELECT id,status,version,last_event_sequence FROM workflows WHERE status='PENDING' ORDER BY scheduler_checked_at NULLS FIRST,created_at,id LIMIT $1 FOR UPDATE SKIP LOCKED`, batch)
+	rows, err := tx.Query(ctx, `SELECT id,status,version,last_event_sequence FROM workflows WHERE status IN ('PENDING','RUNNING') ORDER BY scheduler_checked_at NULLS FIRST,created_at,id LIMIT $1 FOR UPDATE SKIP LOCKED`, batch)
 	if err != nil {
 		return ScanResult{}, classify(err)
 	}
@@ -212,7 +225,7 @@ func (s *Store) ReconcileBatch(ctx context.Context, batch int) (ScanResult, erro
 	}
 	result := ScanResult{Workflows: len(parents)}
 	for _, parent := range parents {
-		count, err := reconcileLocked(ctx, tx, parent)
+		count, err := s.reconcileLocked(ctx, tx, parent)
 		if err != nil {
 			return ScanResult{}, err
 		}

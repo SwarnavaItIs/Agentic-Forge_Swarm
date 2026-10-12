@@ -1,0 +1,195 @@
+package rpc
+
+import (
+	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"errors"
+	"forgeswarm/api/worker/v1"
+	"forgeswarm/internal/execution"
+	"forgeswarm/internal/workflow"
+	"github.com/google/uuid"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"time"
+)
+
+type Store interface {
+	RegisterWorker(context.Context, string, uuid.UUID, []string, int) (execution.Worker, error)
+	HeartbeatWorker(context.Context, string, uuid.UUID, *bool) (execution.Worker, error)
+	ClaimTask(context.Context, string, uuid.UUID, uuid.UUID, uuid.UUID, int64) (execution.Attempt, error)
+	RenewLease(context.Context, string, uuid.UUID, uuid.UUID, int64) (execution.Attempt, error)
+	FinishAttempt(context.Context, string, uuid.UUID, uuid.UUID, int64, bool, []byte) (execution.Attempt, error)
+}
+type identityKey struct{}
+
+func Identity(ctx context.Context) string { v, _ := ctx.Value(identityKey{}).(string); return v }
+func Auth(keys map[string]string, timeout time.Duration) grpc.UnaryServerInterceptor {
+	hashes := map[string][32]byte{}
+	for id, key := range keys {
+		hashes[id] = sha256.Sum256([]byte("Bearer " + key))
+	}
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		md, _ := metadata.FromIncomingContext(ctx)
+		values := md.Get("authorization")
+		if len(values) != 1 || len(values[0]) > 300 {
+			return nil, status.Error(codes.Unauthenticated, "worker_auth_required")
+		}
+		actual := sha256.Sum256([]byte(values[0]))
+		id := ""
+		for principal, want := range hashes {
+			if subtle.ConstantTimeCompare(actual[:], want[:]) == 1 {
+				id = principal
+			}
+		}
+		if id == "" {
+			return nil, status.Error(codes.Unauthenticated, "worker_auth_required")
+		}
+		ctx = context.WithValue(ctx, identityKey{}, id)
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		return handler(ctx, req)
+	}
+}
+
+type Server struct {
+	workerv1.UnimplementedCoordinatorServer
+	store Store
+}
+
+func New(store Store) *Server { return &Server{store: store} }
+func safe(err error) error {
+	if err == nil {
+		return nil
+	}
+	code, msg := codes.Internal, "internal_error"
+	switch {
+	case errors.Is(err, workflow.ErrInvalid):
+		code, msg = codes.InvalidArgument, "invalid_request"
+	case errors.Is(err, workflow.ErrNotFound):
+		code, msg = codes.NotFound, "not_found"
+	case errors.Is(err, workflow.ErrUnavailable), errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		code, msg = codes.Unavailable, "temporarily_unavailable"
+	case errors.Is(err, execution.ErrClaimed):
+		code, msg = codes.AlreadyExists, "already_claimed"
+	case errors.Is(err, execution.ErrObsolete):
+		code, msg = codes.FailedPrecondition, "obsolete_notification"
+	case errors.Is(err, execution.ErrStale):
+		code, msg = codes.FailedPrecondition, "stale_or_expired_attempt"
+	case errors.Is(err, execution.ErrCapacity), errors.Is(err, execution.ErrDraining):
+		code, msg = codes.ResourceExhausted, "capacity_or_draining"
+	case errors.Is(err, execution.ErrWorker):
+		code, msg = codes.PermissionDenied, "worker_instance_invalid"
+	case errors.Is(err, execution.ErrOutcome):
+		code, msg = codes.AlreadyExists, "conflicting_request_or_outcome"
+	}
+	return status.Error(code, msg)
+}
+func worker(w execution.Worker) *workerv1.Worker {
+	return &workerv1.Worker{WorkerId: w.ID, InstanceId: w.Instance.String(), Capacity: int32(w.Capacity), Draining: w.Draining, HeartbeatAt: timestamppb.New(w.Heartbeat)}
+}
+func attempt(a execution.Attempt) *workerv1.Attempt {
+	out := &workerv1.Attempt{Id: a.ID.String(), TaskId: a.TaskID.String(), AttemptNumber: int32(a.Number), Generation: a.Generation, State: a.State, Kind: a.Kind, DelayMs: int32(a.DelayMS), StartedAt: timestamppb.New(a.StartedAt), LeaseExpiresAt: timestamppb.New(a.LeaseExpiresAt), OutcomeDigest: a.Digest, ResultJson: a.Result}
+	if a.FinishedAt != nil {
+		out.FinishedAt = timestamppb.New(*a.FinishedAt)
+	}
+	return out
+}
+func id(text string) (uuid.UUID, error) {
+	v, err := uuid.Parse(text)
+	if err != nil || len(text) != 36 || v == uuid.Nil {
+		return uuid.Nil, workflow.ErrInvalid
+	}
+	return v, nil
+}
+func (s *Server) RegisterWorker(ctx context.Context, r *workerv1.RegisterRequest) (*workerv1.Worker, error) {
+	i, err := id(r.InstanceId)
+	if err != nil {
+		return nil, safe(err)
+	}
+	w, err := s.store.RegisterWorker(ctx, Identity(ctx), i, r.Capabilities, int(r.Capacity))
+	if err != nil {
+		return nil, safe(err)
+	}
+	return worker(w), nil
+}
+func (s *Server) HeartbeatWorker(ctx context.Context, r *workerv1.InstanceRequest) (*workerv1.Worker, error) {
+	i, err := id(r.InstanceId)
+	if err != nil {
+		return nil, safe(err)
+	}
+	w, err := s.store.HeartbeatWorker(ctx, Identity(ctx), i, nil)
+	if err != nil {
+		return nil, safe(err)
+	}
+	return worker(w), nil
+}
+func (s *Server) SetDraining(ctx context.Context, r *workerv1.DrainRequest) (*workerv1.Worker, error) {
+	i, err := id(r.InstanceId)
+	if err != nil {
+		return nil, safe(err)
+	}
+	w, err := s.store.HeartbeatWorker(ctx, Identity(ctx), i, &r.Draining)
+	if err != nil {
+		return nil, safe(err)
+	}
+	return worker(w), nil
+}
+func (s *Server) ClaimTask(ctx context.Context, r *workerv1.ClaimRequest) (*workerv1.Attempt, error) {
+	i, err := id(r.InstanceId)
+	if err != nil {
+		return nil, safe(err)
+	}
+	t, err := id(r.TaskId)
+	if err != nil {
+		return nil, safe(err)
+	}
+	key, err := id(r.RequestId)
+	if err != nil {
+		return nil, safe(err)
+	}
+	a, err := s.store.ClaimTask(ctx, Identity(ctx), i, t, key, r.DispatchGeneration)
+	if err != nil {
+		return nil, safe(err)
+	}
+	return attempt(a), nil
+}
+func (s *Server) RenewLease(ctx context.Context, r *workerv1.AttemptRequest) (*workerv1.Attempt, error) {
+	i, err := id(r.InstanceId)
+	if err != nil {
+		return nil, safe(err)
+	}
+	aID, err := id(r.AttemptId)
+	if err != nil {
+		return nil, safe(err)
+	}
+	a, err := s.store.RenewLease(ctx, Identity(ctx), i, aID, r.Generation)
+	if err != nil {
+		return nil, safe(err)
+	}
+	return attempt(a), nil
+}
+func (s *Server) finish(ctx context.Context, r *workerv1.OutcomeRequest, success bool) (*workerv1.Attempt, error) {
+	i, err := id(r.InstanceId)
+	if err != nil {
+		return nil, safe(err)
+	}
+	aID, err := id(r.AttemptId)
+	if err != nil {
+		return nil, safe(err)
+	}
+	a, err := s.store.FinishAttempt(ctx, Identity(ctx), i, aID, r.Generation, success, r.ResultJson)
+	if err != nil {
+		return nil, safe(err)
+	}
+	return attempt(a), nil
+}
+func (s *Server) CompleteTask(ctx context.Context, r *workerv1.OutcomeRequest) (*workerv1.Attempt, error) {
+	return s.finish(ctx, r, true)
+}
+func (s *Server) FailTask(ctx context.Context, r *workerv1.OutcomeRequest) (*workerv1.Attempt, error) {
+	return s.finish(ctx, r, false)
+}

@@ -33,7 +33,7 @@ func TestNormalizationV1AndOrder(t *testing.T) {
 	if hex.EncodeToString(one[:]) != want {
 		t.Fatalf("normalization v1 hash: %x", one)
 	}
-	if _, err := HashForVersion(a, 3); err != ErrState {
+	if _, err := HashForVersion(a, 4); err != ErrState {
 		t.Fatalf("unknown version: %v", err)
 	}
 }

@@ -16,5 +16,20 @@ services:
       interval: 2s
       timeout: 2s
       retries: 30
+  broker:
+    profiles: ["execution"]
+    image: nats:2.11.6-alpine@sha256:7dec3f8f1ff181975dbdfc0d903d2a9724659648294dbc2ebb2fa3a294d573a6
+    platform: linux/amd64
+    command: ["-c", "/etc/nats/nats.conf"]
+    environment:
+      # Public development default, reachable only through loopback host ports.
+      NATS_TOKEN: ${NATS_TOKEN:-forgeswarm-development-broker-token}
+    ports:
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
+    volumes:
+      - ./config/nats.conf:/etc/nats/nats.conf:ro
+      - dev-broker:/data
 volumes:
   dev-db:
+  dev-broker:

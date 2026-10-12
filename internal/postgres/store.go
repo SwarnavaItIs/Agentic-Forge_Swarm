@@ -8,6 +8,7 @@ import (
 	"net"
 	"time"
 
+	"forgeswarm/internal/execution"
 	"forgeswarm/internal/workflow"
 	"forgeswarm/migrations"
 	"github.com/google/uuid"
@@ -16,9 +17,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Store struct{ pool *pgxpool.Pool }
+type Store struct {
+	pool   *pgxpool.Pool
+	limits execution.Limits
+}
 
-func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool, limits: execution.DefaultLimits()} }
+func NewWithLimits(pool *pgxpool.Pool, l execution.Limits) (*Store, error) {
+	if !l.Valid() {
+		return nil, workflow.ErrInvalid
+	}
+	return &Store{pool: pool, limits: l}, nil
+}
 
 // Cleanup has its own bounded context: request cancellation does not prevent a
 // rollback from releasing transaction locks and returning/discarding the connection.
@@ -109,7 +119,7 @@ func (s *Store) Create(ctx context.Context, key string, in workflow.CreateInput)
 				return workflow.Receipt{}, err
 			}
 			taskIDs[task.Key] = taskID
-			_, err = tx.Exec(ctx, `INSERT INTO tasks(id,workflow_id,task_key,position,kind,status) VALUES($1,$2,$3,$4,$5,'PENDING')`, taskID, id, task.Key, position, task.Kind)
+			_, err = tx.Exec(ctx, `INSERT INTO tasks(id,workflow_id,task_key,position,kind,delay_ms,status) VALUES($1,$2,$3,$4,$5,$6,'PENDING')`, taskID, id, task.Key, position, task.Kind, task.DelayMS)
 			if err != nil {
 				return workflow.Receipt{}, classify(err)
 			}
@@ -152,6 +162,10 @@ func (s *Store) Cancel(ctx context.Context, id uuid.UUID) (workflow.Cancellation
 		return workflow.CancellationResult{}, err
 	}
 	if change {
+		_, err = tx.Exec(ctx, `UPDATE task_attempts SET state='CANCELLED',finished_at=clock_timestamp() WHERE workflow_id=$1 AND state='RUNNING'`, id)
+		if err != nil {
+			return workflow.CancellationResult{}, classify(err)
+		}
 		// Parent lock serializes all cancellation writers across every process.
 		// clock_timestamp avoids moving updated_at backwards after a lock wait.
 		var updatedAt time.Time
@@ -263,7 +277,8 @@ func (s *Store) Ready(ctx context.Context) error {
 	}
 	rows, err := s.pool.Query(ctx, `SELECT w.id,w.name,w.status,w.version,w.creation_key,w.request_hash,w.request_schema_version,w.created_at,w.updated_at,
 		w.last_event_sequence,w.scheduler_checked_at,t.id,t.workflow_id,t.task_key,t.position,t.kind,t.status,t.created_at,t.updated_at,e.workflow_id,e.sequence,e.event_type,e.payload,e.occurred_at,d.task_id,d.depends_on_task_id
-		FROM workflows w LEFT JOIN tasks t ON t.workflow_id=w.id LEFT JOIN workflow_events e ON e.workflow_id=w.id LEFT JOIN task_dependencies d ON d.workflow_id=w.id WHERE false`)
+		FROM workflows w LEFT JOIN tasks t ON t.workflow_id=w.id LEFT JOIN workflow_events e ON e.workflow_id=w.id LEFT JOIN task_dependencies d ON d.workflow_id=w.id
+		LEFT JOIN task_attempts a ON a.id=t.current_attempt_id LEFT JOIN outbox o ON o.task_id=t.id WHERE false`)
 	if err != nil {
 		return classify(err)
 	}

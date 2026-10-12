@@ -1,5 +1,4 @@
-// Package workflow defines the stage-01/02 state machine and versioned creation input.
-// A task is a definition. No execution attempts or task execution exist yet.
+// Package workflow defines the durable state machine and versioned creation input.
 package workflow
 
 import (
@@ -19,7 +18,7 @@ import (
 const (
 	Pending              = "PENDING"
 	Cancelled            = "CANCELLED"
-	RequestSchemaVersion = 2
+	RequestSchemaVersion = 3
 )
 
 var (
@@ -36,6 +35,7 @@ type TaskDefinition struct {
 	Key       string   `json:"key"`
 	Kind      string   `json:"kind"`
 	DependsOn []string `json:"depends_on,omitempty"`
+	DelayMS   int      `json:"delay_ms,omitempty"`
 }
 
 type CreateInput struct {
@@ -56,7 +56,7 @@ func Normalize(in CreateInput) (CreateInput, error) {
 	}
 	seen := make(map[string]struct{}, len(in.Tasks))
 	for _, task := range in.Tasks {
-		if !keyPattern.MatchString(task.Key) || task.Kind != "noop" {
+		if !keyPattern.MatchString(task.Key) || !((task.Kind == "noop" && task.DelayMS == 0) || (task.Kind == "delay" && task.DelayMS >= 1 && task.DelayMS <= 30000)) {
 			return CreateInput{}, ErrInvalid
 		}
 		if _, ok := seen[task.Key]; ok {
@@ -79,12 +79,19 @@ func Normalize(in CreateInput) (CreateInput, error) {
 // Future input fields require an explicit compatibility rule and a new version.
 // Version 1 uses this fixed typed representation; changing it changes old hashes.
 func HashForVersion(in CreateInput, version int) ([32]byte, error) {
-	if version != 1 && version != 2 {
+	if version != 1 && version != 2 && version != 3 {
 		return [32]byte{}, ErrState
 	}
 	normalized, err := Normalize(in)
 	if err != nil {
 		return [32]byte{}, err
+	}
+	if version < 3 {
+		for _, task := range normalized.Tasks {
+			if task.Kind != "noop" || task.DelayMS != 0 {
+				return [32]byte{}, ErrConflict
+			}
+		}
 	}
 	var representation any
 	if version == 1 {
@@ -109,7 +116,7 @@ func HashForVersion(in CreateInput, version int) ([32]byte, error) {
 		representation = struct {
 			Version int         `json:"normalization_version"`
 			Input   CreateInput `json:"input"`
-		}{2, normalized}
+		}{version, normalized}
 	}
 	encoded, err := json.Marshal(representation)
 	if err != nil {
@@ -126,6 +133,11 @@ func Cancellation(status string, version int64) (bool, error) {
 	}
 	switch status {
 	case Pending:
+		return true, nil
+	case Running:
+		if version < 2 {
+			return false, ErrState
+		}
 		return true, nil
 	case Cancelled, Succeeded, Failed:
 		if version < 2 {

@@ -35,12 +35,13 @@ def progress(status,failure=None):
             "immutable_finalized_definitions","consistent_bounded_graph_snapshot","two_schedulers_one_logical_transition","idempotent_reconciliation_and_stable_history",
             "failure_propagation_independent_progress_and_aggregation","cancellation_scheduling_serialized_races","bounded_scan_rotation_skip_locked",
             "stage01_database_migration_upgrade","scheduler_process_kill_restart_and_graceful_shutdown","db_outage_recovery",
-            "format_python_vet_unit_race_build_real_db_and_smoke"]},
+            "format_python_vet_unit_race_build_real_db_and_smoke","exact_graph_limits_and_history_page_boundaries",
+            "rollback_after_partial_history_insertion","observable_scheduler_scans_and_outage_logs"]},
         "blockers":[dev.sanitize(failure)] if failure else [],
         "external_verification":{"live_models":"not_applicable","broker_or_workers":"not_implemented_until_stage_03","cloud":"not_requested","performance":"not_measured"},
         "decisions":[
-            "Located actual ForgeSwarm checkout; ReForge workspace and existing changes left untouched",
-            "Stage 01 source was uncommitted with no HEAD; full acceptance rerun passed before implementation",
+            "Use the checked-out ForgeSwarm repository; existing changes are preserved",
+            "Stage 01 acceptance and baseline builds are verified before Stage 02 changes; current Git revision is recorded below",
             "Dependency order semantically irrelevant; duplicates invalid; display order preserved. Kahn validation O(V+E), sorting only for normalization",
             "New creations store normalization v2; explicit empty dependencies match legacy v1, nonempty edges conflict with legacy keys",
             "No applied migration edited; migration 00002 backfills event sequence while parent DDL lock excludes old history writers",
@@ -54,7 +55,9 @@ def progress(status,failure=None):
             "No production terminal setter, claim/executor/broker/LLM/dynamic DAG. RUNNING is only a state-machine boundary for Stage 03",
             "Stage-01 assumptions of schema_version=1 for every new record and version=event sequence superseded explicitly; legacy records/hashes remain unchanged",
             "Database and process tests use only random owned disposable containers and test-only terminal seeds; race detector is not DB-correctness proof",
-            "No extra architecture Markdown or AGENTS files created; interim decisions live in this JSON, code and make help"],
+            "No extra architecture Markdown or AGENTS files created; interim decisions live in this JSON, code and make help",
+            "Stage-02 audit found no runtime correctness defect; strengthened exact graph-limit, history-page and later-event rollback coverage",
+            "Process smoke waits for observed completed scans and new outage logs instead of assuming progress from fixed sleeps"],
         "sources":["internal/workflow/graph.go:ValidateGraph,Reconcile,TaskTransition","internal/workflow/workflow.go:HashForVersion,Cancellation",
             "migrations/00002_dag_scheduler.sql","internal/postgres/store.go:Create,Cancel","internal/postgres/scheduler.go:Graph,Reconcile,ReconcileBatch",
             "internal/httpapi/api.go:graph,decodeCreate","internal/scheduler/scheduler.go:Run","cmd/scheduler/main.go:run","internal/config/config.go:Parse",
@@ -117,6 +120,9 @@ def smoke():
             assert code==200
             assert [e["sequence"] for e in page["events"]]==list(range(1,len(page["events"])+1))
             return page["events"]
+        def log_count(worker,message):
+            _,logs=dev.run(["docker","logs",worker],timeout=5,quiet=True,label="scheduler-observed-log")
+            return sum(json.loads(line).get("msg")==message for line in logs.splitlines() if line.strip())
         def seed(receipt,key,status):
             # Fixed allowed fixture keys/states and canonical server UUIDs only.
             workflow_id=str(uuid.UUID(receipt["id"]))
@@ -152,10 +158,13 @@ def smoke():
             phase("seeded A success, restart reconstructs B/C eligibility",receipt)
             stop(workers.pop())
             seed(receipt,"b","SUCCEEDED")
-            # Give the surviving scheduler multiple scans; D must still wait.
-            time.sleep(0.4)
+            # Observe completed scans after the seed. Elapsed time alone cannot
+            # establish that the scheduler checked fan-in while C was READY.
+            scans_before=log_count(workers[0],"scheduler_scan")
+            dev.poll(lambda:log_count(workers[0],"scheduler_scan")>=scans_before+2,"two completed scans with only B succeeded")
             assert states(receipt)["d"]=="PENDING" and len(events(receipt))==4
             phase("B only succeeded, D remains PENDING",receipt)
+            phases[-1]["completed_scans_after_seed"]=log_count(workers[0],"scheduler_scan")-scans_before
             seed(receipt,"c","SUCCEEDED")
             dev.poll(lambda:states(receipt)["d"]=="READY","D fan-in eligibility")
             phase("B/C succeeded, D READY",receipt)
@@ -176,10 +185,10 @@ def smoke():
             seed(failed,"independent","SUCCEEDED")
             dev.poll(lambda:get_graph(failed)["status"]=="FAILED","failure terminal after independent branch")
             phase("independent branch terminal, workflow FAILED",failed)
+            failures_before=log_count(workers[0],"scheduler_scan_failed")
             dev.run(["docker","stop","--timeout","5",db],label="scheduler-db-outage")
-            time.sleep(0.5)
-            _,logs=dev.run(["docker","logs",workers[0]],quiet=True,label="scheduler-outage-log")
-            assert '"msg":"scheduler_scan_failed"' in logs,"scheduler did not report DB outage"
+            dev.poll(lambda:log_count(workers[0],"scheduler_scan_failed")>failures_before,"new scheduler database-outage log")
+            outage_failures=log_count(workers[0],"scheduler_scan_failed")-failures_before
             dev.run(["docker","start",db],label="scheduler-db-recovery")
             dev.poll(is_ready,"PostgreSQL restart")
             dev.poll(api_ready,"API after DB recovery")
@@ -187,6 +196,7 @@ def smoke():
             assert code==201
             dev.poll(lambda:states(recovered)["a"]=="READY","scheduler continues after DB outage")
             phase("scheduler recovered from database outage",recovered)
+            phases[-1]["new_outage_failures_observed"]=outage_failures
             stop(workers.pop())
             stop(api)
             evidence=EVIDENCE / "scheduler-process-results.json"

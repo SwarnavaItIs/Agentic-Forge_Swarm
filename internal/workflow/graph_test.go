@@ -135,6 +135,28 @@ func TestNormalizationVersionsAndDependencySets(t *testing.T) {
 		t.Fatal("display order disappeared")
 	}
 }
+
+func TestGraphValidationExactLimits(t *testing.T) {
+	defs := definitions(make([][]string, 100))
+	// A complete DAG on 45 nodes has 990 edges. Ten predecessors for the
+	// next node reach the accepted edge limit without introducing a cycle.
+	for i := 1; i < 45; i++ {
+		for j := 0; j < i; j++ {
+			defs[i].DependsOn = append(defs[i].DependsOn, defs[j].Key)
+		}
+	}
+	for j := 0; j < 10; j++ {
+		defs[45].DependsOn = append(defs[45].DependsOn, defs[j].Key)
+	}
+	if order, err := ValidateGraph(defs); err != nil || len(order) != 100 {
+		t.Fatal("100 tasks and 1,000 edges rejected", err)
+	}
+	defs[45].DependsOn = append(defs[45].DependsOn, defs[10].Key)
+	if _, err := ValidateGraph(defs); !errors.Is(err, ErrInvalid) {
+		t.Fatal("1,001 edges accepted", err)
+	}
+}
+
 func TestReadinessFailureAndAggregateRules(t *testing.T) {
 	defs := definitions([][]string{nil, {"n0"}, {"n0"}, {"n1", "n2"}, nil})
 	graph := graphFixture(defs, nil)

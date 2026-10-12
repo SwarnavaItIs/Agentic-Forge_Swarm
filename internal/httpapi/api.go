@@ -187,7 +187,7 @@ func objectKeys(dec *json.Decoder, allowed map[string]bool) error {
 				return workflow.ErrInvalid
 			}
 			for dec.More() {
-				if err := objectKeys(dec, map[string]bool{"key": true, "kind": true, "depends_on": true}); err != nil {
+				if err := objectKeys(dec, map[string]bool{"key": true, "kind": true, "depends_on": true, "delay_ms": true}); err != nil {
 					return err
 				}
 			}
@@ -211,6 +211,14 @@ func objectKeys(dec *json.Decoder, allowed map[string]bool) error {
 			}
 			token, err = dec.Token()
 			if err != nil || token != json.Delim(']') {
+				return workflow.ErrInvalid
+			}
+		} else if key == "delay_ms" {
+			token, err = dec.Token()
+			if err != nil {
+				return workflow.ErrInvalid
+			}
+			if _, ok := token.(float64); !ok {
 				return workflow.ErrInvalid
 			}
 		} else {
