@@ -1,0 +1,1611 @@
+{
+  "schema_version": 1,
+  "stages": {
+    "01": {
+      "stage_number": 1,
+      "title": "Durable workflow foundation",
+      "status": "verified_local",
+      "updated_at": "2026-10-10T06:53:32.598936+00:00",
+      "implemented_capabilities": [
+        "six HTTP endpoints",
+        "versioned normalized idempotency",
+        "atomic workflow/task/event creation",
+        "row-locked idempotent cancellation",
+        "snapshot details",
+        "event cursor pagination",
+        "bounded readiness and request contexts",
+        "graceful shutdown",
+        "explicit Goose migrations",
+        "disposable PostgreSQL verification"
+      ],
+      "acceptance_criteria": {
+        "six_endpoints": "passed",
+        "concurrency_and_conflicts": "passed",
+        "event_failure_rollback": "passed",
+        "replay_after_pool_restart_and_cancellation": "passed",
+        "cancel_noop_and_consistent_details": "passed",
+        "sql_constraints": "passed",
+        "blocked_query_cancellation_and_cleanup": "passed",
+        "api_restart": "passed",
+        "db_outage_liveness_readiness_recovery": "passed",
+        "format_vet_unit_race_build_integration_smoke": "passed"
+      },
+      "blockers": [],
+      "external_verification": {
+        "live_models": "not_applicable",
+        "cloud": "not_requested"
+      },
+      "decisions": [
+        "Empty project initialized as a standalone Git repository; unrelated parent files preserved",
+        "Task definitions do not execute; no attempt/scheduler/broker/agent/frontend",
+        "Normalization v1 frozen by golden hash; future fields require explicit retry compatibility",
+        "Workflow version is event sequence only for stage-01 mutations; future history requires a serialized allocator",
+        "Task unique indexes and event primary key cover workflow FK/update/order predicates; no redundant indexes",
+        "Verification owns uniquely named labelled disposable containers; development storage never destroyed",
+        "Generated sanitized logs replaced on rerun and ignored; progress and evidence excluded from fingerprint",
+        "Official pgx, PostgreSQL, net/http, Goose and Docker image documentation consulted",
+        "Windows race tests use pinned Linux Go image; smoke runs Linux API containers to verify real SIGTERM draining"
+      ],
+      "sources": [
+        "cmd/api/main.go:run",
+        "internal/workflow/workflow.go:HashForVersion",
+        "internal/postgres/store.go:Create,Cancel,Details,Events,Ready",
+        "internal/httpapi/api.go:Handler",
+        "internal/config/config.go:Parse",
+        "migrations/00001_workflows.sql",
+        "tests/integration/workflow_test.go",
+        "scripts/dev.py",
+        ".github/workflows/stage-01.yaml"
+      ],
+      "validation_commands": [
+        {
+          "command": "gofmt -l cmd\\api\\main.go cmd\\migrate\\main.go internal\\config\\config.go internal\\config\\config_test.go internal\\httpapi\\api.go internal\\httpapi\\api_test.go internal\\postgres\\store.go internal\\postgres\\store_test.go internal\\workflow\\workflow.go internal\\workflow\\workflow_test.go migrations\\migrations.go tests\\integration\\workflow_test.go",
+          "started_at": "2026-10-10T06:52:50.648944+00:00",
+          "finished_at": "2026-10-10T06:52:51.117275+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/000-format.log"
+        },
+        {
+          "command": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m py_compile scripts/dev.py",
+          "started_at": "2026-10-10T06:52:51.117275+00:00",
+          "finished_at": "2026-10-10T06:52:51.228551+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/001-python.log"
+        },
+        {
+          "command": "go vet ./...",
+          "started_at": "2026-10-10T06:52:51.228551+00:00",
+          "finished_at": "2026-10-10T06:52:53.338944+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/002-vet.log"
+        },
+        {
+          "command": "go test -count=1 ./...",
+          "started_at": "2026-10-10T06:52:53.338944+00:00",
+          "finished_at": "2026-10-10T06:52:57.518873+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/003-unit.log"
+        },
+        {
+          "command": "docker run --rm --name forgeswarm-go-31927d97e1fc45f1a715ad181f758f7e --label forgeswarm.verification=31927d97e1fc45f1a715ad181f758f7e --platform linux/amd64 --mount \"type=bind,source=C:\\Everything\\Algozenith\\DEV\\Agentic AI Project,target=/src\" -w /src -e GOCACHE=/src/.cache/linux-build -e GOMODCACHE=/src/.cache/go-mod -e GOTELEMETRY=off -e GOTOOLCHAIN=local golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b go test -race -timeout=120s -count=1 ./...",
+          "started_at": "2026-10-10T06:52:57.518873+00:00",
+          "finished_at": "2026-10-10T06:53:07.523886+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/004-race.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-go-31927d97e1fc45f1a715ad181f758f7e",
+          "started_at": "2026-10-10T06:53:07.523886+00:00",
+          "finished_at": "2026-10-10T06:53:07.660857+00:00",
+          "exit": 1,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/005-go-ownership.log"
+        },
+        {
+          "command": "go build -o \"C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin\\api.exe\" ./cmd/api",
+          "started_at": "2026-10-10T06:53:07.660857+00:00",
+          "finished_at": "2026-10-10T06:53:08.412066+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/006-build-api.log"
+        },
+        {
+          "command": "go build -o \"C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin\\migrate.exe\" ./cmd/migrate",
+          "started_at": "2026-10-10T06:53:08.412066+00:00",
+          "finished_at": "2026-10-10T06:53:08.800021+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/007-build-migrate.log"
+        },
+        {
+          "command": "docker compose config --quiet",
+          "started_at": "2026-10-10T06:53:08.801006+00:00",
+          "finished_at": "2026-10-10T06:53:09.018430+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/008-compose.log"
+        },
+        {
+          "command": "docker info --format {{.ServerVersion}}",
+          "started_at": "2026-10-10T06:53:09.019429+00:00",
+          "finished_at": "2026-10-10T06:53:09.587200+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/009-docker.log"
+        },
+        {
+          "command": "docker network create --label forgeswarm.verification=93aea801cc164446a44add8fdc7272db forgeswarm-network-93aea801cc164446a44add8fdc7272db",
+          "started_at": "2026-10-10T06:53:09.587200+00:00",
+          "finished_at": "2026-10-10T06:53:09.747570+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/010-test-network.log"
+        },
+        {
+          "command": "docker run -d --name forgeswarm-stage01-93aea801cc164446a44add8fdc7272db --label forgeswarm.verification=93aea801cc164446a44add8fdc7272db --platform linux/amd64 --network forgeswarm-network-93aea801cc164446a44add8fdc7272db --network-alias db -p 127.0.0.1::5432 -e POSTGRES_USER=forgeswarm -e POSTGRES_PASSWORD=[REDACTED] -e POSTGRES_DB=forgeswarm_stage01_93aea801cc164446a44add8fdc7272db postgres:17.11-bookworm@sha256:66aafa11cf15800a3c94763f7e11d1e7b2e37e5e84bc4ce027cb6e1e4bfaf4df",
+          "started_at": "2026-10-10T06:53:09.748156+00:00",
+          "finished_at": "2026-10-10T06:53:10.300886+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/011-disposable-db.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-93aea801cc164446a44add8fdc7272db pg_isready -U forgeswarm -d forgeswarm_stage01_93aea801cc164446a44add8fdc7272db",
+          "started_at": "2026-10-10T06:53:10.300886+00:00",
+          "finished_at": "2026-10-10T06:53:10.505293+00:00",
+          "exit": 2,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/012-db-poll.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-93aea801cc164446a44add8fdc7272db pg_isready -U forgeswarm -d forgeswarm_stage01_93aea801cc164446a44add8fdc7272db",
+          "started_at": "2026-10-10T06:53:10.705576+00:00",
+          "finished_at": "2026-10-10T06:53:10.940928+00:00",
+          "exit": 2,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/013-db-poll.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-93aea801cc164446a44add8fdc7272db pg_isready -U forgeswarm -d forgeswarm_stage01_93aea801cc164446a44add8fdc7272db",
+          "started_at": "2026-10-10T06:53:11.141513+00:00",
+          "finished_at": "2026-10-10T06:53:11.299138+00:00",
+          "exit": 1,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/014-db-poll.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-93aea801cc164446a44add8fdc7272db pg_isready -U forgeswarm -d forgeswarm_stage01_93aea801cc164446a44add8fdc7272db",
+          "started_at": "2026-10-10T06:53:11.499409+00:00",
+          "finished_at": "2026-10-10T06:53:11.632623+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/015-db-poll.log"
+        },
+        {
+          "command": "docker port forgeswarm-stage01-93aea801cc164446a44add8fdc7272db 5432/tcp",
+          "started_at": "2026-10-10T06:53:11.633163+00:00",
+          "finished_at": "2026-10-10T06:53:11.685722+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/016-db-port.log"
+        },
+        {
+          "command": "docker run --rm --name forgeswarm-go-c67a56d1b6104698a6b9e782c394f25e --label forgeswarm.verification=c67a56d1b6104698a6b9e782c394f25e --platform linux/amd64 --mount \"type=bind,source=C:\\Everything\\Algozenith\\DEV\\Agentic AI Project,target=/src\" -w /src -e GOCACHE=/src/.cache/linux-build -e GOMODCACHE=/src/.cache/go-mod -e GOTELEMETRY=off -e GOTOOLCHAIN=local --network forgeswarm-network-93aea801cc164446a44add8fdc7272db -e TEST_DATABASE_URL=[REDACTED_DATABASE_URL] -e TEST_RESOURCE_TOKEN=93aea801cc164446a44add8fdc7272db golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b go test -race -timeout=120s -tags=integration -count=1 -timeout=120s -v ./tests/integration",
+          "started_at": "2026-10-10T06:53:11.686251+00:00",
+          "finished_at": "2026-10-10T06:53:20.345076+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/017-integration.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-go-c67a56d1b6104698a6b9e782c394f25e",
+          "started_at": "2026-10-10T06:53:20.345076+00:00",
+          "finished_at": "2026-10-10T06:53:20.449955+00:00",
+          "exit": 1,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/018-go-ownership.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-stage01-93aea801cc164446a44add8fdc7272db",
+          "started_at": "2026-10-10T06:53:20.449955+00:00",
+          "finished_at": "2026-10-10T06:53:20.525704+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/019-db-ownership.log"
+        },
+        {
+          "command": "docker rm -f -v forgeswarm-stage01-93aea801cc164446a44add8fdc7272db",
+          "started_at": "2026-10-10T06:53:20.525704+00:00",
+          "finished_at": "2026-10-10T06:53:20.901783+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/020-db-cleanup.log"
+        },
+        {
+          "command": "docker network inspect --format \"{{ index .Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-network-93aea801cc164446a44add8fdc7272db",
+          "started_at": "2026-10-10T06:53:20.902400+00:00",
+          "finished_at": "2026-10-10T06:53:20.968125+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/021-network-ownership.log"
+        },
+        {
+          "command": "docker network rm forgeswarm-network-93aea801cc164446a44add8fdc7272db",
+          "started_at": "2026-10-10T06:53:20.968125+00:00",
+          "finished_at": "2026-10-10T06:53:21.246744+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/022-network-cleanup.log"
+        },
+        {
+          "command": "docker info --format {{.ServerVersion}}",
+          "started_at": "2026-10-10T06:53:21.246744+00:00",
+          "finished_at": "2026-10-10T06:53:21.535700+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/023-docker.log"
+        },
+        {
+          "command": "docker network create --label forgeswarm.verification=63543d338a334900b3f7c3b43b6c7c01 forgeswarm-network-63543d338a334900b3f7c3b43b6c7c01",
+          "started_at": "2026-10-10T06:53:21.535700+00:00",
+          "finished_at": "2026-10-10T06:53:21.636581+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/024-test-network.log"
+        },
+        {
+          "command": "docker run -d --name forgeswarm-stage01-63543d338a334900b3f7c3b43b6c7c01 --label forgeswarm.verification=63543d338a334900b3f7c3b43b6c7c01 --platform linux/amd64 --network forgeswarm-network-63543d338a334900b3f7c3b43b6c7c01 --network-alias db -p 127.0.0.1::5432 -e POSTGRES_USER=forgeswarm -e POSTGRES_PASSWORD=[REDACTED] -e POSTGRES_DB=forgeswarm_stage01_63543d338a334900b3f7c3b43b6c7c01 postgres:17.11-bookworm@sha256:66aafa11cf15800a3c94763f7e11d1e7b2e37e5e84bc4ce027cb6e1e4bfaf4df",
+          "started_at": "2026-10-10T06:53:21.637167+00:00",
+          "finished_at": "2026-10-10T06:53:21.964304+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/025-disposable-db.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-63543d338a334900b3f7c3b43b6c7c01 pg_isready -U forgeswarm -d forgeswarm_stage01_63543d338a334900b3f7c3b43b6c7c01",
+          "started_at": "2026-10-10T06:53:21.964819+00:00",
+          "finished_at": "2026-10-10T06:53:22.125742+00:00",
+          "exit": 2,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/026-db-poll.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-63543d338a334900b3f7c3b43b6c7c01 pg_isready -U forgeswarm -d forgeswarm_stage01_63543d338a334900b3f7c3b43b6c7c01",
+          "started_at": "2026-10-10T06:53:22.326706+00:00",
+          "finished_at": "2026-10-10T06:53:22.470710+00:00",
+          "exit": 2,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/027-db-poll.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-63543d338a334900b3f7c3b43b6c7c01 pg_isready -U forgeswarm -d forgeswarm_stage01_63543d338a334900b3f7c3b43b6c7c01",
+          "started_at": "2026-10-10T06:53:22.671690+00:00",
+          "finished_at": "2026-10-10T06:53:22.814898+00:00",
+          "exit": 2,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/028-db-poll.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-63543d338a334900b3f7c3b43b6c7c01 pg_isready -U forgeswarm -d forgeswarm_stage01_63543d338a334900b3f7c3b43b6c7c01",
+          "started_at": "2026-10-10T06:53:23.015552+00:00",
+          "finished_at": "2026-10-10T06:53:23.161697+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/029-db-poll.log"
+        },
+        {
+          "command": "docker port forgeswarm-stage01-63543d338a334900b3f7c3b43b6c7c01 5432/tcp",
+          "started_at": "2026-10-10T06:53:23.162228+00:00",
+          "finished_at": "2026-10-10T06:53:23.217725+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/030-db-port.log"
+        },
+        {
+          "command": "go run ./cmd/migrate up",
+          "started_at": "2026-10-10T06:53:23.217725+00:00",
+          "finished_at": "2026-10-10T06:53:24.013210+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/031-smoke-migrate.log"
+        },
+        {
+          "command": "go run ./cmd/migrate status",
+          "started_at": "2026-10-10T06:53:24.013210+00:00",
+          "finished_at": "2026-10-10T06:53:24.325175+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/032-smoke-migration-status.log"
+        },
+        {
+          "command": "go build -o \"C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin\\api-linux\" ./cmd/api",
+          "started_at": "2026-10-10T06:53:24.326176+00:00",
+          "finished_at": "2026-10-10T06:53:24.798152+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/033-smoke-build.log"
+        },
+        {
+          "command": "docker run -d --name forgeswarm-api-6f2884cd36704688914600c934d2667c --label forgeswarm.verification=63543d338a334900b3f7c3b43b6c7c01 --platform linux/amd64 --network forgeswarm-network-63543d338a334900b3f7c3b43b6c7c01 -p 127.0.0.1::8080 --mount \"type=bind,source=C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin,target=/app,readonly\" -e DATABASE_URL=[REDACTED_DATABASE_URL] -e HTTP_ADDR=0.0.0.0:8080 -e REQUEST_TIMEOUT=1s -e READY_TIMEOUT=300ms -e CONNECT_TIMEOUT=300ms golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b /app/api-linux",
+          "started_at": "2026-10-10T06:53:24.799160+00:00",
+          "finished_at": "2026-10-10T06:53:25.131384+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/034-api-start.log"
+        },
+        {
+          "command": "docker port forgeswarm-api-6f2884cd36704688914600c934d2667c 8080/tcp",
+          "started_at": "2026-10-10T06:53:25.131916+00:00",
+          "finished_at": "2026-10-10T06:53:25.197085+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/035-api-port.log"
+        },
+        {
+          "command": "docker stop --time 15 forgeswarm-api-6f2884cd36704688914600c934d2667c",
+          "started_at": "2026-10-10T06:53:25.448211+00:00",
+          "finished_at": "2026-10-10T06:53:25.800011+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/036-api-sigterm.log"
+        },
+        {
+          "command": "docker inspect --format {{.State.ExitCode}} forgeswarm-api-6f2884cd36704688914600c934d2667c",
+          "started_at": "2026-10-10T06:53:25.800538+00:00",
+          "finished_at": "2026-10-10T06:53:25.858254+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/037-api-exit.log"
+        },
+        {
+          "command": "docker logs forgeswarm-api-6f2884cd36704688914600c934d2667c",
+          "started_at": "2026-10-10T06:53:25.858819+00:00",
+          "finished_at": "2026-10-10T06:53:25.922364+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/038-api-logs.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-api-6f2884cd36704688914600c934d2667c",
+          "started_at": "2026-10-10T06:53:25.922364+00:00",
+          "finished_at": "2026-10-10T06:53:25.979222+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/039-api-ownership.log"
+        },
+        {
+          "command": "docker rm -f forgeswarm-api-6f2884cd36704688914600c934d2667c",
+          "started_at": "2026-10-10T06:53:25.979777+00:00",
+          "finished_at": "2026-10-10T06:53:26.055138+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/040-api-cleanup.log"
+        },
+        {
+          "command": "docker run -d --name forgeswarm-api-c7251a8c1c954101a2ce83468cb89f57 --label forgeswarm.verification=63543d338a334900b3f7c3b43b6c7c01 --platform linux/amd64 --network forgeswarm-network-63543d338a334900b3f7c3b43b6c7c01 -p 127.0.0.1::8080 --mount \"type=bind,source=C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin,target=/app,readonly\" -e DATABASE_URL=[REDACTED_DATABASE_URL] -e HTTP_ADDR=0.0.0.0:8080 -e REQUEST_TIMEOUT=1s -e READY_TIMEOUT=300ms -e CONNECT_TIMEOUT=300ms golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b /app/api-linux",
+          "started_at": "2026-10-10T06:53:26.055691+00:00",
+          "finished_at": "2026-10-10T06:53:26.380549+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/041-api-start.log"
+        },
+        {
+          "command": "docker port forgeswarm-api-c7251a8c1c954101a2ce83468cb89f57 8080/tcp",
+          "started_at": "2026-10-10T06:53:26.380549+00:00",
+          "finished_at": "2026-10-10T06:53:26.438668+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/042-api-port.log"
+        },
+        {
+          "command": "docker stop --time 5 forgeswarm-stage01-63543d338a334900b3f7c3b43b6c7c01",
+          "started_at": "2026-10-10T06:53:26.521917+00:00",
+          "finished_at": "2026-10-10T06:53:26.883060+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/043-smoke-outage.log"
+        },
+        {
+          "command": "docker start forgeswarm-stage01-63543d338a334900b3f7c3b43b6c7c01",
+          "started_at": "2026-10-10T06:53:27.901146+00:00",
+          "finished_at": "2026-10-10T06:53:28.127990+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/044-smoke-recovery.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-63543d338a334900b3f7c3b43b6c7c01 pg_isready -U forgeswarm -d forgeswarm_stage01_63543d338a334900b3f7c3b43b6c7c01",
+          "started_at": "2026-10-10T06:53:28.127990+00:00",
+          "finished_at": "2026-10-10T06:53:28.285096+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/045-db-poll.log"
+        },
+        {
+          "command": "docker stop --time 15 forgeswarm-api-c7251a8c1c954101a2ce83468cb89f57",
+          "started_at": "2026-10-10T06:53:28.341077+00:00",
+          "finished_at": "2026-10-10T06:53:31.176596+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/046-api-sigterm.log"
+        },
+        {
+          "command": "docker inspect --format {{.State.ExitCode}} forgeswarm-api-c7251a8c1c954101a2ce83468cb89f57",
+          "started_at": "2026-10-10T06:53:31.177110+00:00",
+          "finished_at": "2026-10-10T06:53:31.234352+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/047-api-exit.log"
+        },
+        {
+          "command": "docker logs forgeswarm-api-c7251a8c1c954101a2ce83468cb89f57",
+          "started_at": "2026-10-10T06:53:31.234352+00:00",
+          "finished_at": "2026-10-10T06:53:31.298666+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/048-api-logs.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-api-c7251a8c1c954101a2ce83468cb89f57",
+          "started_at": "2026-10-10T06:53:31.299794+00:00",
+          "finished_at": "2026-10-10T06:53:31.362674+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/049-api-ownership.log"
+        },
+        {
+          "command": "docker rm -f forgeswarm-api-c7251a8c1c954101a2ce83468cb89f57",
+          "started_at": "2026-10-10T06:53:31.363611+00:00",
+          "finished_at": "2026-10-10T06:53:31.537058+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/050-api-cleanup.log"
+        },
+        {
+          "command": "smoke HTTP/restart/outage assertions",
+          "started_at": "2026-10-10T06:53:24.799160+00:00",
+          "finished_at": "2026-10-10T06:53:31.537058+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/smoke-api.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-api-c7251a8c1c954101a2ce83468cb89f57",
+          "started_at": "2026-10-10T06:53:31.537605+00:00",
+          "finished_at": "2026-10-10T06:53:31.627105+00:00",
+          "exit": 1,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/052-api-ownership.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-stage01-63543d338a334900b3f7c3b43b6c7c01",
+          "started_at": "2026-10-10T06:53:31.628726+00:00",
+          "finished_at": "2026-10-10T06:53:31.693176+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/053-db-ownership.log"
+        },
+        {
+          "command": "docker rm -f -v forgeswarm-stage01-63543d338a334900b3f7c3b43b6c7c01",
+          "started_at": "2026-10-10T06:53:31.693176+00:00",
+          "finished_at": "2026-10-10T06:53:32.101706+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/054-db-cleanup.log"
+        },
+        {
+          "command": "docker network inspect --format \"{{ index .Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-network-63543d338a334900b3f7c3b43b6c7c01",
+          "started_at": "2026-10-10T06:53:32.102241+00:00",
+          "finished_at": "2026-10-10T06:53:32.185253+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-01/055-network-ownership.log"
+        },
+        {
+          "command": "docker network rm forgeswarm-network-63543d338a334900b3f7c3b43b6c7c01",
+          "started_at": "2026-10-10T06:53:32.185253+00:00",
+          "finished_at": "2026-10-10T06:53:32.511700+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-01/056-network-cleanup.log"
+        }
+      ],
+      "git": {
+        "revision": null,
+        "dirty": true,
+        "scope": "."
+      },
+      "fingerprint": {
+        "algorithm": "sha256",
+        "value": "1145eb7a6b54bbf0abfa621b95c953ad3c7a9dbc31546abf1cba23f46585699a",
+        "excludes": [
+          ".forgeswarm",
+          "artifacts/verification",
+          ".cache",
+          "bin",
+          "__pycache__"
+        ]
+      },
+      "next_stage": 2,
+      "reference_docs": [
+        "https://pkg.go.dev/github.com/jackc/pgx/v5",
+        "https://pkg.go.dev/github.com/jackc/pgx/v5/pgxpool",
+        "https://www.postgresql.org/docs/current/transaction-iso.html",
+        "https://pkg.go.dev/net/http",
+        "https://pressly.github.io/goose/documentation/provider/",
+        "https://hub.docker.com/_/postgres"
+      ]
+    },
+    "02": {
+      "stage_number": 2,
+      "title": "Persisted DAG scheduler",
+      "status": "verified_local",
+      "updated_at": "2026-10-10T07:17:02.338352+00:00",
+      "implemented_capabilities": [
+        "validated immutable DAG and bounded graph snapshot API",
+        "normalization-v2 and frozen legacy-v1 retry compatibility",
+        "additive composite-FK migration and serialized event allocator",
+        "bounded database-locked reconciliation and scan rotation",
+        "failure propagation with independent branches and terminal aggregation",
+        "scheduler process with contexts, shutdown and sanitized logs",
+        "deterministic graph/property tests and real PostgreSQL concurrency/upgrade tests",
+        "real scheduler kill/restart, diamond fixture and outage verification"
+      ],
+      "acceptance_criteria": {
+        "legacy_api_create_cancel_replay_and_v1_hash": "passed",
+        "graph_validation_limits_and_property_reference": "passed",
+        "atomic_durable_graph_and_cross_workflow_FKs": "passed",
+        "immutable_finalized_definitions": "passed",
+        "consistent_bounded_graph_snapshot": "passed",
+        "two_schedulers_one_logical_transition": "passed",
+        "idempotent_reconciliation_and_stable_history": "passed",
+        "failure_propagation_independent_progress_and_aggregation": "passed",
+        "cancellation_scheduling_serialized_races": "passed",
+        "bounded_scan_rotation_skip_locked": "passed",
+        "stage01_database_migration_upgrade": "passed",
+        "scheduler_process_kill_restart_and_graceful_shutdown": "passed",
+        "db_outage_recovery": "passed",
+        "format_python_vet_unit_race_build_real_db_and_smoke": "passed"
+      },
+      "blockers": [],
+      "external_verification": {
+        "live_models": "not_applicable",
+        "broker_or_workers": "not_implemented_until_stage_03",
+        "cloud": "not_requested",
+        "performance": "not_measured"
+      },
+      "decisions": [
+        "Located actual ForgeSwarm checkout; ReForge workspace and existing changes left untouched",
+        "Stage 01 source was uncommitted with no HEAD; full acceptance rerun passed before implementation",
+        "Dependency order semantically irrelevant; duplicates invalid; display order preserved. Kahn validation O(V+E), sorting only for normalization",
+        "New creations store normalization v2; explicit empty dependencies match legacy v1, nonempty edges conflict with legacy keys",
+        "No applied migration edited; migration 00002 backfills event sequence while parent DDL lock excludes old history writers",
+        "Upgrade API after migration before starting scheduler; old binary cancellation cannot allocate the new history sequence",
+        "Definitions and edges finalize atomically with workflow.created and are guarded against later SQL mutation",
+        "Parent locks before child states/history; version increments once per mutation, sequence once per event; no runtime MAX(sequence)+1",
+        "Continue independent branches; failure terminal only when unfinished/runnable/running work is terminal; READY never counts as success",
+        "Per-workflow serialization and bounded batch locks trade throughput for consistency; SKIP LOCKED has no strict fairness under persistent contention",
+        "Oldest persisted scheduler_checked_at rotates no-op scans without mutating public state/revision/timestamps",
+        "FAILED/BLOCKED and individually CANCELLED predecessors are unsuccessful and block unfinished descendants; whole-workflow cancellation wins by transaction order",
+        "No production terminal setter, claim/executor/broker/LLM/dynamic DAG. RUNNING is only a state-machine boundary for Stage 03",
+        "Stage-01 assumptions of schema_version=1 for every new record and version=event sequence superseded explicitly; legacy records/hashes remain unchanged",
+        "Database and process tests use only random owned disposable containers and test-only terminal seeds; race detector is not DB-correctness proof",
+        "No extra architecture Markdown or AGENTS files created; interim decisions live in this JSON, code and make help"
+      ],
+      "sources": [
+        "internal/workflow/graph.go:ValidateGraph,Reconcile,TaskTransition",
+        "internal/workflow/workflow.go:HashForVersion,Cancellation",
+        "migrations/00002_dag_scheduler.sql",
+        "internal/postgres/store.go:Create,Cancel",
+        "internal/postgres/scheduler.go:Graph,Reconcile,ReconcileBatch",
+        "internal/httpapi/api.go:graph,decodeCreate",
+        "internal/scheduler/scheduler.go:Run",
+        "cmd/scheduler/main.go:run",
+        "internal/config/config.go:Parse",
+        "tests/integration/scheduler_test.go",
+        "tests/fixtures/diamond.json",
+        "scripts/stage02.py",
+        "Makefile",
+        ".github/workflows/stage-02.yaml"
+      ],
+      "validation_commands": [
+        {
+          "command": "gofmt -l cmd\\api\\main.go cmd\\migrate\\main.go cmd\\scheduler\\main.go internal\\config\\config.go internal\\config\\config_test.go internal\\httpapi\\api.go internal\\httpapi\\api_test.go internal\\postgres\\scheduler.go internal\\postgres\\store.go internal\\postgres\\store_test.go internal\\scheduler\\scheduler.go internal\\scheduler\\scheduler_test.go internal\\workflow\\graph.go internal\\workflow\\graph_test.go internal\\workflow\\workflow.go internal\\workflow\\workflow_test.go migrations\\migrations.go tests\\integration\\scheduler_test.go tests\\integration\\workflow_test.go",
+          "started_at": "2026-10-10T07:16:05.644411+00:00",
+          "finished_at": "2026-10-10T07:16:05.666011+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/000-format.log"
+        },
+        {
+          "command": "C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m py_compile scripts/dev.py scripts/stage02.py",
+          "started_at": "2026-10-10T07:16:05.666011+00:00",
+          "finished_at": "2026-10-10T07:16:05.760469+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/001-python.log"
+        },
+        {
+          "command": "go vet ./...",
+          "started_at": "2026-10-10T07:16:05.760469+00:00",
+          "finished_at": "2026-10-10T07:16:06.362077+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/002-vet.log"
+        },
+        {
+          "command": "go test -count=1 ./...",
+          "started_at": "2026-10-10T07:16:06.362077+00:00",
+          "finished_at": "2026-10-10T07:16:10.639020+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/003-unit.log"
+        },
+        {
+          "command": "docker run --rm --name forgeswarm-go-7955235f601f46c483052880cac3f2d1 --label forgeswarm.verification=7955235f601f46c483052880cac3f2d1 --platform linux/amd64 --mount \"type=bind,source=C:\\Everything\\Algozenith\\DEV\\Agentic AI Project,target=/src\" -w /src -e GOCACHE=/src/.cache/linux-build -e GOMODCACHE=/src/.cache/go-mod -e GOTELEMETRY=off -e GOTOOLCHAIN=local golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b go test -race -timeout=120s -count=1 ./...",
+          "started_at": "2026-10-10T07:16:10.639020+00:00",
+          "finished_at": "2026-10-10T07:16:19.869794+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/004-race.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-go-7955235f601f46c483052880cac3f2d1",
+          "started_at": "2026-10-10T07:16:19.870337+00:00",
+          "finished_at": "2026-10-10T07:16:19.966421+00:00",
+          "exit": 1,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/005-go-ownership.log"
+        },
+        {
+          "command": "go build -o \"C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin\\api.exe\" ./cmd/api",
+          "started_at": "2026-10-10T07:16:19.966421+00:00",
+          "finished_at": "2026-10-10T07:16:20.470331+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/006-build-api.log"
+        },
+        {
+          "command": "go build -o \"C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin\\migrate.exe\" ./cmd/migrate",
+          "started_at": "2026-10-10T07:16:20.470331+00:00",
+          "finished_at": "2026-10-10T07:16:20.889704+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/007-build-migrate.log"
+        },
+        {
+          "command": "go build -o \"C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin\\scheduler.exe\" ./cmd/scheduler",
+          "started_at": "2026-10-10T07:16:20.889704+00:00",
+          "finished_at": "2026-10-10T07:16:21.459156+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/008-build-scheduler.log"
+        },
+        {
+          "command": "docker compose config --quiet",
+          "started_at": "2026-10-10T07:16:21.459156+00:00",
+          "finished_at": "2026-10-10T07:16:21.657490+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/009-compose.log"
+        },
+        {
+          "command": "docker info --format {{.ServerVersion}}",
+          "started_at": "2026-10-10T07:16:21.657490+00:00",
+          "finished_at": "2026-10-10T07:16:22.222169+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/010-docker.log"
+        },
+        {
+          "command": "docker network create --label forgeswarm.verification=c2f7d2414abb4e5480a6beb63a05f98f forgeswarm-network-c2f7d2414abb4e5480a6beb63a05f98f",
+          "started_at": "2026-10-10T07:16:22.222169+00:00",
+          "finished_at": "2026-10-10T07:16:22.317989+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/011-test-network.log"
+        },
+        {
+          "command": "docker run -d --name forgeswarm-stage01-c2f7d2414abb4e5480a6beb63a05f98f --label forgeswarm.verification=c2f7d2414abb4e5480a6beb63a05f98f --platform linux/amd64 --network forgeswarm-network-c2f7d2414abb4e5480a6beb63a05f98f --network-alias db -p 127.0.0.1::5432 -e POSTGRES_USER=forgeswarm -e POSTGRES_PASSWORD=[REDACTED] -e POSTGRES_DB=forgeswarm_stage01_c2f7d2414abb4e5480a6beb63a05f98f postgres:17.11-bookworm@sha256:66aafa11cf15800a3c94763f7e11d1e7b2e37e5e84bc4ce027cb6e1e4bfaf4df",
+          "started_at": "2026-10-10T07:16:22.317989+00:00",
+          "finished_at": "2026-10-10T07:16:22.725836+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/012-disposable-db.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-c2f7d2414abb4e5480a6beb63a05f98f pg_isready -U forgeswarm -d forgeswarm_stage01_c2f7d2414abb4e5480a6beb63a05f98f",
+          "started_at": "2026-10-10T07:16:22.725836+00:00",
+          "finished_at": "2026-10-10T07:16:22.931605+00:00",
+          "exit": 2,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/013-db-poll.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-c2f7d2414abb4e5480a6beb63a05f98f pg_isready -U forgeswarm -d forgeswarm_stage01_c2f7d2414abb4e5480a6beb63a05f98f",
+          "started_at": "2026-10-10T07:16:23.133084+00:00",
+          "finished_at": "2026-10-10T07:16:23.310186+00:00",
+          "exit": 2,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/014-db-poll.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-c2f7d2414abb4e5480a6beb63a05f98f pg_isready -U forgeswarm -d forgeswarm_stage01_c2f7d2414abb4e5480a6beb63a05f98f",
+          "started_at": "2026-10-10T07:16:23.511416+00:00",
+          "finished_at": "2026-10-10T07:16:23.667265+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/015-db-poll.log"
+        },
+        {
+          "command": "docker port forgeswarm-stage01-c2f7d2414abb4e5480a6beb63a05f98f 5432/tcp",
+          "started_at": "2026-10-10T07:16:23.667849+00:00",
+          "finished_at": "2026-10-10T07:16:23.790030+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/016-db-port.log"
+        },
+        {
+          "command": "docker run --rm --name forgeswarm-go-24049840976f4a1eb94628d01ca26d19 --label forgeswarm.verification=24049840976f4a1eb94628d01ca26d19 --platform linux/amd64 --mount \"type=bind,source=C:\\Everything\\Algozenith\\DEV\\Agentic AI Project,target=/src\" -w /src -e GOCACHE=/src/.cache/linux-build -e GOMODCACHE=/src/.cache/go-mod -e GOTELEMETRY=off -e GOTOOLCHAIN=local --network forgeswarm-network-c2f7d2414abb4e5480a6beb63a05f98f -e TEST_DATABASE_URL=[REDACTED_DATABASE_URL] -e TEST_RESOURCE_TOKEN=c2f7d2414abb4e5480a6beb63a05f98f golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b go test -race -timeout=120s -tags=integration -count=1 -timeout=120s -v ./tests/integration",
+          "started_at": "2026-10-10T07:16:23.790030+00:00",
+          "finished_at": "2026-10-10T07:16:35.216533+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/017-integration.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-go-24049840976f4a1eb94628d01ca26d19",
+          "started_at": "2026-10-10T07:16:35.217092+00:00",
+          "finished_at": "2026-10-10T07:16:35.324447+00:00",
+          "exit": 1,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/018-go-ownership.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-stage01-c2f7d2414abb4e5480a6beb63a05f98f",
+          "started_at": "2026-10-10T07:16:35.325009+00:00",
+          "finished_at": "2026-10-10T07:16:35.382838+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/019-db-ownership.log"
+        },
+        {
+          "command": "docker rm -f -v forgeswarm-stage01-c2f7d2414abb4e5480a6beb63a05f98f",
+          "started_at": "2026-10-10T07:16:35.383389+00:00",
+          "finished_at": "2026-10-10T07:16:35.737160+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/020-db-cleanup.log"
+        },
+        {
+          "command": "docker network inspect --format \"{{ index .Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-network-c2f7d2414abb4e5480a6beb63a05f98f",
+          "started_at": "2026-10-10T07:16:35.737160+00:00",
+          "finished_at": "2026-10-10T07:16:35.796218+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/021-network-ownership.log"
+        },
+        {
+          "command": "docker network rm forgeswarm-network-c2f7d2414abb4e5480a6beb63a05f98f",
+          "started_at": "2026-10-10T07:16:35.796218+00:00",
+          "finished_at": "2026-10-10T07:16:36.096078+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/022-network-cleanup.log"
+        },
+        {
+          "command": "docker info --format {{.ServerVersion}}",
+          "started_at": "2026-10-10T07:16:36.096078+00:00",
+          "finished_at": "2026-10-10T07:16:36.375700+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/023-docker.log"
+        },
+        {
+          "command": "docker network create --label forgeswarm.verification=03f3260f25044a2a8d9628a19c971315 forgeswarm-network-03f3260f25044a2a8d9628a19c971315",
+          "started_at": "2026-10-10T07:16:36.375700+00:00",
+          "finished_at": "2026-10-10T07:16:36.459846+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/024-test-network.log"
+        },
+        {
+          "command": "docker run -d --name forgeswarm-stage01-03f3260f25044a2a8d9628a19c971315 --label forgeswarm.verification=03f3260f25044a2a8d9628a19c971315 --platform linux/amd64 --network forgeswarm-network-03f3260f25044a2a8d9628a19c971315 --network-alias db -p 127.0.0.1::5432 -e POSTGRES_USER=forgeswarm -e POSTGRES_PASSWORD=[REDACTED] -e POSTGRES_DB=forgeswarm_stage01_03f3260f25044a2a8d9628a19c971315 postgres:17.11-bookworm@sha256:66aafa11cf15800a3c94763f7e11d1e7b2e37e5e84bc4ce027cb6e1e4bfaf4df",
+          "started_at": "2026-10-10T07:16:36.460417+00:00",
+          "finished_at": "2026-10-10T07:16:36.806132+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/025-disposable-db.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-03f3260f25044a2a8d9628a19c971315 pg_isready -U forgeswarm -d forgeswarm_stage01_03f3260f25044a2a8d9628a19c971315",
+          "started_at": "2026-10-10T07:16:36.806132+00:00",
+          "finished_at": "2026-10-10T07:16:36.975939+00:00",
+          "exit": 2,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/026-db-poll.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-03f3260f25044a2a8d9628a19c971315 pg_isready -U forgeswarm -d forgeswarm_stage01_03f3260f25044a2a8d9628a19c971315",
+          "started_at": "2026-10-10T07:16:37.176500+00:00",
+          "finished_at": "2026-10-10T07:16:37.323697+00:00",
+          "exit": 2,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/027-db-poll.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-03f3260f25044a2a8d9628a19c971315 pg_isready -U forgeswarm -d forgeswarm_stage01_03f3260f25044a2a8d9628a19c971315",
+          "started_at": "2026-10-10T07:16:37.524420+00:00",
+          "finished_at": "2026-10-10T07:16:37.689514+00:00",
+          "exit": 1,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/028-db-poll.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-03f3260f25044a2a8d9628a19c971315 pg_isready -U forgeswarm -d forgeswarm_stage01_03f3260f25044a2a8d9628a19c971315",
+          "started_at": "2026-10-10T07:16:37.889826+00:00",
+          "finished_at": "2026-10-10T07:16:38.046496+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/029-db-poll.log"
+        },
+        {
+          "command": "docker port forgeswarm-stage01-03f3260f25044a2a8d9628a19c971315 5432/tcp",
+          "started_at": "2026-10-10T07:16:38.046496+00:00",
+          "finished_at": "2026-10-10T07:16:38.099211+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/030-db-port.log"
+        },
+        {
+          "command": "go run ./cmd/migrate up",
+          "started_at": "2026-10-10T07:16:38.099211+00:00",
+          "finished_at": "2026-10-10T07:16:38.575235+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/031-smoke-migrate.log"
+        },
+        {
+          "command": "go run ./cmd/migrate status",
+          "started_at": "2026-10-10T07:16:38.575235+00:00",
+          "finished_at": "2026-10-10T07:16:38.951058+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/032-smoke-migration-status.log"
+        },
+        {
+          "command": "go build -o \"C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin\\api-linux\" ./cmd/api",
+          "started_at": "2026-10-10T07:16:38.952084+00:00",
+          "finished_at": "2026-10-10T07:16:39.499962+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/033-smoke-build.log"
+        },
+        {
+          "command": "docker run -d --name forgeswarm-api-51053e6ff14a46aa8544eccb9949a3a2 --label forgeswarm.verification=03f3260f25044a2a8d9628a19c971315 --platform linux/amd64 --network forgeswarm-network-03f3260f25044a2a8d9628a19c971315 -p 127.0.0.1::8080 --mount \"type=bind,source=C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin,target=/app,readonly\" -e DATABASE_URL=[REDACTED_DATABASE_URL] -e HTTP_ADDR=0.0.0.0:8080 -e REQUEST_TIMEOUT=1s -e READY_TIMEOUT=300ms -e CONNECT_TIMEOUT=300ms golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b /app/api-linux",
+          "started_at": "2026-10-10T07:16:39.500493+00:00",
+          "finished_at": "2026-10-10T07:16:39.879728+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/034-api-start.log"
+        },
+        {
+          "command": "docker port forgeswarm-api-51053e6ff14a46aa8544eccb9949a3a2 8080/tcp",
+          "started_at": "2026-10-10T07:16:39.879728+00:00",
+          "finished_at": "2026-10-10T07:16:39.934532+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/035-api-port.log"
+        },
+        {
+          "command": "docker stop --time 15 forgeswarm-api-51053e6ff14a46aa8544eccb9949a3a2",
+          "started_at": "2026-10-10T07:16:40.104223+00:00",
+          "finished_at": "2026-10-10T07:16:40.485419+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/036-api-sigterm.log"
+        },
+        {
+          "command": "docker inspect --format {{.State.ExitCode}} forgeswarm-api-51053e6ff14a46aa8544eccb9949a3a2",
+          "started_at": "2026-10-10T07:16:40.485988+00:00",
+          "finished_at": "2026-10-10T07:16:40.539825+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/037-api-exit.log"
+        },
+        {
+          "command": "docker logs forgeswarm-api-51053e6ff14a46aa8544eccb9949a3a2",
+          "started_at": "2026-10-10T07:16:40.539825+00:00",
+          "finished_at": "2026-10-10T07:16:40.594136+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/038-api-logs.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-api-51053e6ff14a46aa8544eccb9949a3a2",
+          "started_at": "2026-10-10T07:16:40.594136+00:00",
+          "finished_at": "2026-10-10T07:16:40.657397+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/039-api-ownership.log"
+        },
+        {
+          "command": "docker rm -f forgeswarm-api-51053e6ff14a46aa8544eccb9949a3a2",
+          "started_at": "2026-10-10T07:16:40.657397+00:00",
+          "finished_at": "2026-10-10T07:16:40.731467+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/040-api-cleanup.log"
+        },
+        {
+          "command": "docker run -d --name forgeswarm-api-ed688013fb2241b0b36dcd3b929959f1 --label forgeswarm.verification=03f3260f25044a2a8d9628a19c971315 --platform linux/amd64 --network forgeswarm-network-03f3260f25044a2a8d9628a19c971315 -p 127.0.0.1::8080 --mount \"type=bind,source=C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin,target=/app,readonly\" -e DATABASE_URL=[REDACTED_DATABASE_URL] -e HTTP_ADDR=0.0.0.0:8080 -e REQUEST_TIMEOUT=1s -e READY_TIMEOUT=300ms -e CONNECT_TIMEOUT=300ms golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b /app/api-linux",
+          "started_at": "2026-10-10T07:16:40.732047+00:00",
+          "finished_at": "2026-10-10T07:16:41.142917+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/041-api-start.log"
+        },
+        {
+          "command": "docker port forgeswarm-api-ed688013fb2241b0b36dcd3b929959f1 8080/tcp",
+          "started_at": "2026-10-10T07:16:41.142917+00:00",
+          "finished_at": "2026-10-10T07:16:41.199414+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/042-api-port.log"
+        },
+        {
+          "command": "docker stop --time 5 forgeswarm-stage01-03f3260f25044a2a8d9628a19c971315",
+          "started_at": "2026-10-10T07:16:41.343370+00:00",
+          "finished_at": "2026-10-10T07:16:41.731086+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/043-smoke-outage.log"
+        },
+        {
+          "command": "docker start forgeswarm-stage01-03f3260f25044a2a8d9628a19c971315",
+          "started_at": "2026-10-10T07:16:42.746987+00:00",
+          "finished_at": "2026-10-10T07:16:43.031144+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/044-smoke-recovery.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-03f3260f25044a2a8d9628a19c971315 pg_isready -U forgeswarm -d forgeswarm_stage01_03f3260f25044a2a8d9628a19c971315",
+          "started_at": "2026-10-10T07:16:43.031144+00:00",
+          "finished_at": "2026-10-10T07:16:43.220218+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/045-db-poll.log"
+        },
+        {
+          "command": "docker stop --time 15 forgeswarm-api-ed688013fb2241b0b36dcd3b929959f1",
+          "started_at": "2026-10-10T07:16:43.239951+00:00",
+          "finished_at": "2026-10-10T07:16:45.998128+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/046-api-sigterm.log"
+        },
+        {
+          "command": "docker inspect --format {{.State.ExitCode}} forgeswarm-api-ed688013fb2241b0b36dcd3b929959f1",
+          "started_at": "2026-10-10T07:16:45.998128+00:00",
+          "finished_at": "2026-10-10T07:16:46.050788+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/047-api-exit.log"
+        },
+        {
+          "command": "docker logs forgeswarm-api-ed688013fb2241b0b36dcd3b929959f1",
+          "started_at": "2026-10-10T07:16:46.050788+00:00",
+          "finished_at": "2026-10-10T07:16:46.104135+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/048-api-logs.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-api-ed688013fb2241b0b36dcd3b929959f1",
+          "started_at": "2026-10-10T07:16:46.105835+00:00",
+          "finished_at": "2026-10-10T07:16:46.154275+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/049-api-ownership.log"
+        },
+        {
+          "command": "docker rm -f forgeswarm-api-ed688013fb2241b0b36dcd3b929959f1",
+          "started_at": "2026-10-10T07:16:46.154275+00:00",
+          "finished_at": "2026-10-10T07:16:46.225073+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/050-api-cleanup.log"
+        },
+        {
+          "command": "smoke HTTP/restart/outage assertions",
+          "started_at": "2026-10-10T07:16:39.500493+00:00",
+          "finished_at": "2026-10-10T07:16:46.225073+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/smoke-api.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-api-ed688013fb2241b0b36dcd3b929959f1",
+          "started_at": "2026-10-10T07:16:46.225073+00:00",
+          "finished_at": "2026-10-10T07:16:46.302830+00:00",
+          "exit": 1,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/052-api-ownership.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-stage01-03f3260f25044a2a8d9628a19c971315",
+          "started_at": "2026-10-10T07:16:46.303836+00:00",
+          "finished_at": "2026-10-10T07:16:46.358750+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/053-db-ownership.log"
+        },
+        {
+          "command": "docker rm -f -v forgeswarm-stage01-03f3260f25044a2a8d9628a19c971315",
+          "started_at": "2026-10-10T07:16:46.358750+00:00",
+          "finished_at": "2026-10-10T07:16:46.735121+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/054-db-cleanup.log"
+        },
+        {
+          "command": "docker network inspect --format \"{{ index .Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-network-03f3260f25044a2a8d9628a19c971315",
+          "started_at": "2026-10-10T07:16:46.736128+00:00",
+          "finished_at": "2026-10-10T07:16:46.792687+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/055-network-ownership.log"
+        },
+        {
+          "command": "docker network rm forgeswarm-network-03f3260f25044a2a8d9628a19c971315",
+          "started_at": "2026-10-10T07:16:46.793210+00:00",
+          "finished_at": "2026-10-10T07:16:47.038689+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/056-network-cleanup.log"
+        },
+        {
+          "command": "docker info --format {{.ServerVersion}}",
+          "started_at": "2026-10-10T07:16:47.038689+00:00",
+          "finished_at": "2026-10-10T07:16:47.327853+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/057-docker.log"
+        },
+        {
+          "command": "docker network create --label forgeswarm.verification=21aa9180624b4f689967c70184564fe4 forgeswarm-network-21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:16:47.327853+00:00",
+          "finished_at": "2026-10-10T07:16:47.406077+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/058-test-network.log"
+        },
+        {
+          "command": "docker run -d --name forgeswarm-stage01-21aa9180624b4f689967c70184564fe4 --label forgeswarm.verification=21aa9180624b4f689967c70184564fe4 --platform linux/amd64 --network forgeswarm-network-21aa9180624b4f689967c70184564fe4 --network-alias db -p 127.0.0.1::5432 -e POSTGRES_USER=forgeswarm -e POSTGRES_PASSWORD=[REDACTED] -e POSTGRES_DB=forgeswarm_stage01_21aa9180624b4f689967c70184564fe4 postgres:17.11-bookworm@sha256:66aafa11cf15800a3c94763f7e11d1e7b2e37e5e84bc4ce027cb6e1e4bfaf4df",
+          "started_at": "2026-10-10T07:16:47.406077+00:00",
+          "finished_at": "2026-10-10T07:16:47.714579+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/059-disposable-db.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-21aa9180624b4f689967c70184564fe4 pg_isready -U forgeswarm -d forgeswarm_stage01_21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:16:47.714579+00:00",
+          "finished_at": "2026-10-10T07:16:47.868663+00:00",
+          "exit": 2,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/060-db-poll.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-21aa9180624b4f689967c70184564fe4 pg_isready -U forgeswarm -d forgeswarm_stage01_21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:16:48.069625+00:00",
+          "finished_at": "2026-10-10T07:16:48.256600+00:00",
+          "exit": 2,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/061-db-poll.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-21aa9180624b4f689967c70184564fe4 pg_isready -U forgeswarm -d forgeswarm_stage01_21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:16:48.457191+00:00",
+          "finished_at": "2026-10-10T07:16:48.598385+00:00",
+          "exit": 1,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/062-db-poll.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-21aa9180624b4f689967c70184564fe4 pg_isready -U forgeswarm -d forgeswarm_stage01_21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:16:48.799081+00:00",
+          "finished_at": "2026-10-10T07:16:48.938506+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/063-db-poll.log"
+        },
+        {
+          "command": "docker port forgeswarm-stage01-21aa9180624b4f689967c70184564fe4 5432/tcp",
+          "started_at": "2026-10-10T07:16:48.938506+00:00",
+          "finished_at": "2026-10-10T07:16:48.990573+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/064-db-port.log"
+        },
+        {
+          "command": "go run ./cmd/migrate up",
+          "started_at": "2026-10-10T07:16:48.990573+00:00",
+          "finished_at": "2026-10-10T07:16:49.349309+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/065-dag-migrate.log"
+        },
+        {
+          "command": "go build -o \"C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin\\api-linux\" ./cmd/api",
+          "started_at": "2026-10-10T07:16:49.349309+00:00",
+          "finished_at": "2026-10-10T07:16:49.747009+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/066-dag-build-api.log"
+        },
+        {
+          "command": "go build -o \"C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin\\scheduler-linux\" ./cmd/scheduler",
+          "started_at": "2026-10-10T07:16:49.747978+00:00",
+          "finished_at": "2026-10-10T07:16:50.129410+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/067-dag-build-scheduler.log"
+        },
+        {
+          "command": "docker run -d --name forgeswarm-api-9be330b86c6d4c379f3171a068fe4348 --label forgeswarm.verification=21aa9180624b4f689967c70184564fe4 --platform linux/amd64 --network forgeswarm-network-21aa9180624b4f689967c70184564fe4 --mount \"type=bind,source=C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin,target=/app,readonly\" -e DATABASE_URL=[REDACTED_DATABASE_URL] -e SCHEDULER_INTERVAL=100ms -e SCHEDULER_BATCH_SIZE=2 -e SCHEDULER_SCAN_TIMEOUT=1s -p 127.0.0.1::8080 -e HTTP_ADDR=0.0.0.0:8080 golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b /app/api-linux",
+          "started_at": "2026-10-10T07:16:50.129410+00:00",
+          "finished_at": "2026-10-10T07:16:50.497429+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/068-dag-start-api.log"
+        },
+        {
+          "command": "docker port forgeswarm-api-9be330b86c6d4c379f3171a068fe4348 8080/tcp",
+          "started_at": "2026-10-10T07:16:50.497956+00:00",
+          "finished_at": "2026-10-10T07:16:50.556907+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/069-dag-api-port.log"
+        },
+        {
+          "command": "docker run -d --name forgeswarm-scheduler-361eea6a001e43a19186a7717fc24597 --label forgeswarm.verification=21aa9180624b4f689967c70184564fe4 --platform linux/amd64 --network forgeswarm-network-21aa9180624b4f689967c70184564fe4 --mount \"type=bind,source=C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin,target=/app,readonly\" -e DATABASE_URL=[REDACTED_DATABASE_URL] -e SCHEDULER_INTERVAL=100ms -e SCHEDULER_BATCH_SIZE=2 -e SCHEDULER_SCAN_TIMEOUT=1s golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b /app/scheduler-linux",
+          "started_at": "2026-10-10T07:16:50.605409+00:00",
+          "finished_at": "2026-10-10T07:16:50.903497+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/070-dag-start-scheduler.log"
+        },
+        {
+          "command": "docker run -d --name forgeswarm-scheduler-1556b0e4372c43f79c95ec0c155cd953 --label forgeswarm.verification=21aa9180624b4f689967c70184564fe4 --platform linux/amd64 --network forgeswarm-network-21aa9180624b4f689967c70184564fe4 --mount \"type=bind,source=C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin,target=/app,readonly\" -e DATABASE_URL=[REDACTED_DATABASE_URL] -e SCHEDULER_INTERVAL=100ms -e SCHEDULER_BATCH_SIZE=2 -e SCHEDULER_SCAN_TIMEOUT=1s golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b /app/scheduler-linux",
+          "started_at": "2026-10-10T07:16:50.903497+00:00",
+          "finished_at": "2026-10-10T07:16:51.237372+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/071-dag-start-scheduler.log"
+        },
+        {
+          "command": "docker kill --signal KILL forgeswarm-scheduler-361eea6a001e43a19186a7717fc24597",
+          "started_at": "2026-10-10T07:16:51.285470+00:00",
+          "finished_at": "2026-10-10T07:16:51.530897+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/072-scheduler-kill.log"
+        },
+        {
+          "command": "docker inspect --format {{.State.ExitCode}} forgeswarm-scheduler-361eea6a001e43a19186a7717fc24597",
+          "started_at": "2026-10-10T07:16:51.530897+00:00",
+          "finished_at": "2026-10-10T07:16:51.589524+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/073-dag-exit.log"
+        },
+        {
+          "command": "docker logs forgeswarm-scheduler-361eea6a001e43a19186a7717fc24597",
+          "started_at": "2026-10-10T07:16:51.589524+00:00",
+          "finished_at": "2026-10-10T07:16:51.656052+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/074-dag-process-log.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-scheduler-361eea6a001e43a19186a7717fc24597",
+          "started_at": "2026-10-10T07:16:51.656568+00:00",
+          "finished_at": "2026-10-10T07:16:51.706453+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/075-dag-ownership.log"
+        },
+        {
+          "command": "docker rm -f forgeswarm-scheduler-361eea6a001e43a19186a7717fc24597",
+          "started_at": "2026-10-10T07:16:51.706986+00:00",
+          "finished_at": "2026-10-10T07:16:51.782025+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/076-dag-cleanup.log"
+        },
+        {
+          "command": "docker kill --signal KILL forgeswarm-scheduler-1556b0e4372c43f79c95ec0c155cd953",
+          "started_at": "2026-10-10T07:16:51.782025+00:00",
+          "finished_at": "2026-10-10T07:16:52.041473+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/077-scheduler-kill.log"
+        },
+        {
+          "command": "docker inspect --format {{.State.ExitCode}} forgeswarm-scheduler-1556b0e4372c43f79c95ec0c155cd953",
+          "started_at": "2026-10-10T07:16:52.042006+00:00",
+          "finished_at": "2026-10-10T07:16:52.163211+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/078-dag-exit.log"
+        },
+        {
+          "command": "docker logs forgeswarm-scheduler-1556b0e4372c43f79c95ec0c155cd953",
+          "started_at": "2026-10-10T07:16:52.163211+00:00",
+          "finished_at": "2026-10-10T07:16:52.222352+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/079-dag-process-log.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-scheduler-1556b0e4372c43f79c95ec0c155cd953",
+          "started_at": "2026-10-10T07:16:52.222352+00:00",
+          "finished_at": "2026-10-10T07:16:52.278033+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/080-dag-ownership.log"
+        },
+        {
+          "command": "docker rm -f forgeswarm-scheduler-1556b0e4372c43f79c95ec0c155cd953",
+          "started_at": "2026-10-10T07:16:52.278033+00:00",
+          "finished_at": "2026-10-10T07:16:52.352441+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/081-dag-cleanup.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-stage01-21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:16:52.352960+00:00",
+          "finished_at": "2026-10-10T07:16:52.411311+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/082-seed-ownership.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-21aa9180624b4f689967c70184564fe4 psql -v ON_ERROR_STOP=1 -U forgeswarm -d forgeswarm_stage01_21aa9180624b4f689967c70184564fe4 -c \"BEGIN; SELECT id FROM workflows WHERE id='de0b0995-6fd6-4bff-857b-b59aec8cbb1a' FOR UPDATE; UPDATE tasks SET status='SUCCEEDED',updated_at=clock_timestamp() WHERE workflow_id='de0b0995-6fd6-4bff-857b-b59aec8cbb1a' AND task_key='a'; COMMIT;\"",
+          "started_at": "2026-10-10T07:16:52.411311+00:00",
+          "finished_at": "2026-10-10T07:16:52.574586+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/083-test-only-terminal-seed.log"
+        },
+        {
+          "command": "docker run -d --name forgeswarm-scheduler-e8f7686309574baa81f4d47d7619c274 --label forgeswarm.verification=21aa9180624b4f689967c70184564fe4 --platform linux/amd64 --network forgeswarm-network-21aa9180624b4f689967c70184564fe4 --mount \"type=bind,source=C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin,target=/app,readonly\" -e DATABASE_URL=[REDACTED_DATABASE_URL] -e SCHEDULER_INTERVAL=100ms -e SCHEDULER_BATCH_SIZE=2 -e SCHEDULER_SCAN_TIMEOUT=1s golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b /app/scheduler-linux",
+          "started_at": "2026-10-10T07:16:52.574586+00:00",
+          "finished_at": "2026-10-10T07:16:52.932958+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/084-dag-start-scheduler.log"
+        },
+        {
+          "command": "docker run -d --name forgeswarm-scheduler-2957dfe023384c848c240e1a34cb3354 --label forgeswarm.verification=21aa9180624b4f689967c70184564fe4 --platform linux/amd64 --network forgeswarm-network-21aa9180624b4f689967c70184564fe4 --mount \"type=bind,source=C:\\Everything\\Algozenith\\DEV\\Agentic AI Project\\bin,target=/app,readonly\" -e DATABASE_URL=[REDACTED_DATABASE_URL] -e SCHEDULER_INTERVAL=100ms -e SCHEDULER_BATCH_SIZE=2 -e SCHEDULER_SCAN_TIMEOUT=1s golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b /app/scheduler-linux",
+          "started_at": "2026-10-10T07:16:52.932958+00:00",
+          "finished_at": "2026-10-10T07:16:53.255303+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/085-dag-start-scheduler.log"
+        },
+        {
+          "command": "docker stop --timeout 10 forgeswarm-scheduler-2957dfe023384c848c240e1a34cb3354",
+          "started_at": "2026-10-10T07:16:53.283322+00:00",
+          "finished_at": "2026-10-10T07:16:53.532527+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/086-dag-graceful-stop.log"
+        },
+        {
+          "command": "docker inspect --format {{.State.ExitCode}} forgeswarm-scheduler-2957dfe023384c848c240e1a34cb3354",
+          "started_at": "2026-10-10T07:16:53.532527+00:00",
+          "finished_at": "2026-10-10T07:16:53.590009+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/087-dag-exit.log"
+        },
+        {
+          "command": "docker logs forgeswarm-scheduler-2957dfe023384c848c240e1a34cb3354",
+          "started_at": "2026-10-10T07:16:53.590009+00:00",
+          "finished_at": "2026-10-10T07:16:53.658720+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/088-dag-process-log.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-scheduler-2957dfe023384c848c240e1a34cb3354",
+          "started_at": "2026-10-10T07:16:53.658720+00:00",
+          "finished_at": "2026-10-10T07:16:53.718451+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/089-dag-ownership.log"
+        },
+        {
+          "command": "docker rm -f forgeswarm-scheduler-2957dfe023384c848c240e1a34cb3354",
+          "started_at": "2026-10-10T07:16:53.718451+00:00",
+          "finished_at": "2026-10-10T07:16:53.792961+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/090-dag-cleanup.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-stage01-21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:16:53.793493+00:00",
+          "finished_at": "2026-10-10T07:16:53.876228+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/091-seed-ownership.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-21aa9180624b4f689967c70184564fe4 psql -v ON_ERROR_STOP=1 -U forgeswarm -d forgeswarm_stage01_21aa9180624b4f689967c70184564fe4 -c \"BEGIN; SELECT id FROM workflows WHERE id='de0b0995-6fd6-4bff-857b-b59aec8cbb1a' FOR UPDATE; UPDATE tasks SET status='SUCCEEDED',updated_at=clock_timestamp() WHERE workflow_id='de0b0995-6fd6-4bff-857b-b59aec8cbb1a' AND task_key='b'; COMMIT;\"",
+          "started_at": "2026-10-10T07:16:53.876228+00:00",
+          "finished_at": "2026-10-10T07:16:54.039438+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/092-test-only-terminal-seed.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-stage01-21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:16:54.467878+00:00",
+          "finished_at": "2026-10-10T07:16:54.516933+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/093-seed-ownership.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-21aa9180624b4f689967c70184564fe4 psql -v ON_ERROR_STOP=1 -U forgeswarm -d forgeswarm_stage01_21aa9180624b4f689967c70184564fe4 -c \"BEGIN; SELECT id FROM workflows WHERE id='de0b0995-6fd6-4bff-857b-b59aec8cbb1a' FOR UPDATE; UPDATE tasks SET status='SUCCEEDED',updated_at=clock_timestamp() WHERE workflow_id='de0b0995-6fd6-4bff-857b-b59aec8cbb1a' AND task_key='c'; COMMIT;\"",
+          "started_at": "2026-10-10T07:16:54.516933+00:00",
+          "finished_at": "2026-10-10T07:16:54.671349+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/094-test-only-terminal-seed.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-stage01-21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:16:54.709448+00:00",
+          "finished_at": "2026-10-10T07:16:54.785991+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/095-seed-ownership.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-21aa9180624b4f689967c70184564fe4 psql -v ON_ERROR_STOP=1 -U forgeswarm -d forgeswarm_stage01_21aa9180624b4f689967c70184564fe4 -c \"BEGIN; SELECT id FROM workflows WHERE id='de0b0995-6fd6-4bff-857b-b59aec8cbb1a' FOR UPDATE; UPDATE tasks SET status='SUCCEEDED',updated_at=clock_timestamp() WHERE workflow_id='de0b0995-6fd6-4bff-857b-b59aec8cbb1a' AND task_key='d'; COMMIT;\"",
+          "started_at": "2026-10-10T07:16:54.785991+00:00",
+          "finished_at": "2026-10-10T07:16:54.919848+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/096-test-only-terminal-seed.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-stage01-21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:16:55.379049+00:00",
+          "finished_at": "2026-10-10T07:16:55.428990+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/097-seed-ownership.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-21aa9180624b4f689967c70184564fe4 psql -v ON_ERROR_STOP=1 -U forgeswarm -d forgeswarm_stage01_21aa9180624b4f689967c70184564fe4 -c \"BEGIN; SELECT id FROM workflows WHERE id='ca24ce4e-4807-486c-b23b-d9987fcae2c5' FOR UPDATE; UPDATE tasks SET status='FAILED',updated_at=clock_timestamp() WHERE workflow_id='ca24ce4e-4807-486c-b23b-d9987fcae2c5' AND task_key='a'; COMMIT;\"",
+          "started_at": "2026-10-10T07:16:55.428990+00:00",
+          "finished_at": "2026-10-10T07:16:55.571941+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/098-test-only-terminal-seed.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-stage01-21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:16:55.820803+00:00",
+          "finished_at": "2026-10-10T07:16:55.869488+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/099-seed-ownership.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-21aa9180624b4f689967c70184564fe4 psql -v ON_ERROR_STOP=1 -U forgeswarm -d forgeswarm_stage01_21aa9180624b4f689967c70184564fe4 -c \"BEGIN; SELECT id FROM workflows WHERE id='ca24ce4e-4807-486c-b23b-d9987fcae2c5' FOR UPDATE; UPDATE tasks SET status='SUCCEEDED',updated_at=clock_timestamp() WHERE workflow_id='ca24ce4e-4807-486c-b23b-d9987fcae2c5' AND task_key='independent'; COMMIT;\"",
+          "started_at": "2026-10-10T07:16:55.870010+00:00",
+          "finished_at": "2026-10-10T07:16:56.015788+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/100-test-only-terminal-seed.log"
+        },
+        {
+          "command": "docker stop --timeout 5 forgeswarm-stage01-21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:16:56.086991+00:00",
+          "finished_at": "2026-10-10T07:16:56.470653+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/101-scheduler-db-outage.log"
+        },
+        {
+          "command": "docker logs forgeswarm-scheduler-e8f7686309574baa81f4d47d7619c274",
+          "started_at": "2026-10-10T07:16:56.971142+00:00",
+          "finished_at": "2026-10-10T07:16:57.021727+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/102-scheduler-outage-log.log"
+        },
+        {
+          "command": "docker start forgeswarm-stage01-21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:16:57.021727+00:00",
+          "finished_at": "2026-10-10T07:16:57.245931+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/103-scheduler-db-recovery.log"
+        },
+        {
+          "command": "docker exec forgeswarm-stage01-21aa9180624b4f689967c70184564fe4 pg_isready -U forgeswarm -d forgeswarm_stage01_21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:16:57.245931+00:00",
+          "finished_at": "2026-10-10T07:16:57.396607+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/104-db-poll.log"
+        },
+        {
+          "command": "docker stop --timeout 10 forgeswarm-scheduler-e8f7686309574baa81f4d47d7619c274",
+          "started_at": "2026-10-10T07:16:57.697965+00:00",
+          "finished_at": "2026-10-10T07:17:00.610788+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/105-dag-graceful-stop.log"
+        },
+        {
+          "command": "docker inspect --format {{.State.ExitCode}} forgeswarm-scheduler-e8f7686309574baa81f4d47d7619c274",
+          "started_at": "2026-10-10T07:17:00.610788+00:00",
+          "finished_at": "2026-10-10T07:17:00.661673+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/106-dag-exit.log"
+        },
+        {
+          "command": "docker logs forgeswarm-scheduler-e8f7686309574baa81f4d47d7619c274",
+          "started_at": "2026-10-10T07:17:00.661673+00:00",
+          "finished_at": "2026-10-10T07:17:00.714164+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/107-dag-process-log.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-scheduler-e8f7686309574baa81f4d47d7619c274",
+          "started_at": "2026-10-10T07:17:00.714164+00:00",
+          "finished_at": "2026-10-10T07:17:00.765687+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/108-dag-ownership.log"
+        },
+        {
+          "command": "docker rm -f forgeswarm-scheduler-e8f7686309574baa81f4d47d7619c274",
+          "started_at": "2026-10-10T07:17:00.765687+00:00",
+          "finished_at": "2026-10-10T07:17:00.838075+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/109-dag-cleanup.log"
+        },
+        {
+          "command": "docker stop --timeout 10 forgeswarm-api-9be330b86c6d4c379f3171a068fe4348",
+          "started_at": "2026-10-10T07:17:00.838075+00:00",
+          "finished_at": "2026-10-10T07:17:01.188115+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/110-dag-graceful-stop.log"
+        },
+        {
+          "command": "docker inspect --format {{.State.ExitCode}} forgeswarm-api-9be330b86c6d4c379f3171a068fe4348",
+          "started_at": "2026-10-10T07:17:01.188115+00:00",
+          "finished_at": "2026-10-10T07:17:01.240086+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/111-dag-exit.log"
+        },
+        {
+          "command": "docker logs forgeswarm-api-9be330b86c6d4c379f3171a068fe4348",
+          "started_at": "2026-10-10T07:17:01.240086+00:00",
+          "finished_at": "2026-10-10T07:17:01.292744+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/112-dag-process-log.log"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-api-9be330b86c6d4c379f3171a068fe4348",
+          "started_at": "2026-10-10T07:17:01.292744+00:00",
+          "finished_at": "2026-10-10T07:17:01.342725+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/113-dag-ownership.log"
+        },
+        {
+          "command": "docker rm -f forgeswarm-api-9be330b86c6d4c379f3171a068fe4348",
+          "started_at": "2026-10-10T07:17:01.342725+00:00",
+          "finished_at": "2026-10-10T07:17:01.411186+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/114-dag-cleanup.log"
+        },
+        {
+          "command": "real scheduler process diamond / SIGKILL restart / graceful drain / outage assertions",
+          "started_at": "2026-10-10T07:16:47.038689+00:00",
+          "finished_at": "2026-10-10T07:17:01.412285+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/scheduler-process-results.json"
+        },
+        {
+          "command": "docker inspect --format \"{{ index .Config.Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-stage01-21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:17:01.412285+00:00",
+          "finished_at": "2026-10-10T07:17:01.470681+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/116-db-ownership.log"
+        },
+        {
+          "command": "docker rm -f -v forgeswarm-stage01-21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:17:01.470681+00:00",
+          "finished_at": "2026-10-10T07:17:01.884912+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/117-db-cleanup.log"
+        },
+        {
+          "command": "docker network inspect --format \"{{ index .Labels \\\"forgeswarm.verification\\\" }}\" forgeswarm-network-21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:17:01.885459+00:00",
+          "finished_at": "2026-10-10T07:17:01.941587+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-02/118-network-ownership.log"
+        },
+        {
+          "command": "docker network rm forgeswarm-network-21aa9180624b4f689967c70184564fe4",
+          "started_at": "2026-10-10T07:17:01.941587+00:00",
+          "finished_at": "2026-10-10T07:17:02.243601+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/119-network-cleanup.log"
+        },
+        {
+          "command": "git diff --check",
+          "started_at": "2026-10-10T07:17:02.243601+00:00",
+          "finished_at": "2026-10-10T07:17:02.276257+00:00",
+          "exit": 0,
+          "required": true,
+          "evidence_path": "artifacts/verification/stage-02/120-diff-check.log"
+        }
+      ],
+      "git": {
+        "revision": null,
+        "dirty": true,
+        "scope": "."
+      },
+      "fingerprint": {
+        "algorithm": "sha256",
+        "value": "1ef7cff1e9c8a2958259d463c25fd88fc2f747abacea438247f03e7168ee3025",
+        "excludes": [
+          ".forgeswarm",
+          "artifacts/verification",
+          ".cache",
+          "bin",
+          "__pycache__"
+        ]
+      },
+      "reference_docs": [
+        "https://www.postgresql.org/docs/17/sql-select.html",
+        "https://www.postgresql.org/docs/17/ddl-constraints.html",
+        "https://www.postgresql.org/docs/17/transaction-iso.html",
+        "https://pkg.go.dev/github.com/jackc/pgx/v5"
+      ],
+      "next_stage": 3
+    }
+  }
+}

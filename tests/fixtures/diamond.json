@@ -1,0 +1,1 @@
+{"name":"TEST-ONLY diamond A -> {B,C} -> D","tasks":[{"key":"a","kind":"noop"},{"key":"b","kind":"noop","depends_on":["a"]},{"key":"c","kind":"noop","depends_on":["a"]},{"key":"d","kind":"noop","depends_on":["b","c"]}]}

@@ -1,0 +1,20 @@
+name: forgeswarm-dev
+services:
+  db:
+    image: postgres:17.11-bookworm@sha256:66aafa11cf15800a3c94763f7e11d1e7b2e37e5e84bc4ce027cb6e1e4bfaf4df
+    platform: linux/amd64
+    environment:
+      POSTGRES_USER: forgeswarm
+      POSTGRES_PASSWORD: forgeswarm_dev
+      POSTGRES_DB: forgeswarm
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - dev-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgeswarm -d forgeswarm"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+volumes:
+  dev-db:
