@@ -26,6 +26,8 @@ const (
 	Coordinator_RenewLease_FullMethodName      = "/forgeswarm.worker.v1.Coordinator/RenewLease"
 	Coordinator_CompleteTask_FullMethodName    = "/forgeswarm.worker.v1.Coordinator/CompleteTask"
 	Coordinator_FailTask_FullMethodName        = "/forgeswarm.worker.v1.Coordinator/FailTask"
+	Coordinator_AuthorizeTool_FullMethodName   = "/forgeswarm.worker.v1.Coordinator/AuthorizeTool"
+	Coordinator_AcknowledgeStop_FullMethodName = "/forgeswarm.worker.v1.Coordinator/AcknowledgeStop"
 )
 
 // CoordinatorClient is the client API for Coordinator service.
@@ -41,6 +43,8 @@ type CoordinatorClient interface {
 	RenewLease(ctx context.Context, in *AttemptRequest, opts ...grpc.CallOption) (*Attempt, error)
 	CompleteTask(ctx context.Context, in *OutcomeRequest, opts ...grpc.CallOption) (*Attempt, error)
 	FailTask(ctx context.Context, in *OutcomeRequest, opts ...grpc.CallOption) (*Attempt, error)
+	AuthorizeTool(ctx context.Context, in *AttemptRequest, opts ...grpc.CallOption) (*Attempt, error)
+	AcknowledgeStop(ctx context.Context, in *AttemptRequest, opts ...grpc.CallOption) (*Attempt, error)
 }
 
 type coordinatorClient struct {
@@ -121,6 +125,26 @@ func (c *coordinatorClient) FailTask(ctx context.Context, in *OutcomeRequest, op
 	return out, nil
 }
 
+func (c *coordinatorClient) AuthorizeTool(ctx context.Context, in *AttemptRequest, opts ...grpc.CallOption) (*Attempt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Attempt)
+	err := c.cc.Invoke(ctx, Coordinator_AuthorizeTool_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coordinatorClient) AcknowledgeStop(ctx context.Context, in *AttemptRequest, opts ...grpc.CallOption) (*Attempt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Attempt)
+	err := c.cc.Invoke(ctx, Coordinator_AcknowledgeStop_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoordinatorServer is the server API for Coordinator service.
 // All implementations must embed UnimplementedCoordinatorServer
 // for forward compatibility.
@@ -134,6 +158,8 @@ type CoordinatorServer interface {
 	RenewLease(context.Context, *AttemptRequest) (*Attempt, error)
 	CompleteTask(context.Context, *OutcomeRequest) (*Attempt, error)
 	FailTask(context.Context, *OutcomeRequest) (*Attempt, error)
+	AuthorizeTool(context.Context, *AttemptRequest) (*Attempt, error)
+	AcknowledgeStop(context.Context, *AttemptRequest) (*Attempt, error)
 	mustEmbedUnimplementedCoordinatorServer()
 }
 
@@ -164,6 +190,12 @@ func (UnimplementedCoordinatorServer) CompleteTask(context.Context, *OutcomeRequ
 }
 func (UnimplementedCoordinatorServer) FailTask(context.Context, *OutcomeRequest) (*Attempt, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FailTask not implemented")
+}
+func (UnimplementedCoordinatorServer) AuthorizeTool(context.Context, *AttemptRequest) (*Attempt, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AuthorizeTool not implemented")
+}
+func (UnimplementedCoordinatorServer) AcknowledgeStop(context.Context, *AttemptRequest) (*Attempt, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AcknowledgeStop not implemented")
 }
 func (UnimplementedCoordinatorServer) mustEmbedUnimplementedCoordinatorServer() {}
 func (UnimplementedCoordinatorServer) testEmbeddedByValue()                     {}
@@ -312,6 +344,42 @@ func _Coordinator_FailTask_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Coordinator_AuthorizeTool_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AttemptRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServer).AuthorizeTool(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Coordinator_AuthorizeTool_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServer).AuthorizeTool(ctx, req.(*AttemptRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Coordinator_AcknowledgeStop_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AttemptRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServer).AcknowledgeStop(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Coordinator_AcknowledgeStop_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServer).AcknowledgeStop(ctx, req.(*AttemptRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Coordinator_ServiceDesc is the grpc.ServiceDesc for Coordinator service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -346,6 +414,14 @@ var Coordinator_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FailTask",
 			Handler:    _Coordinator_FailTask_Handler,
+		},
+		{
+			MethodName: "AuthorizeTool",
+			Handler:    _Coordinator_AuthorizeTool_Handler,
+		},
+		{
+			MethodName: "AcknowledgeStop",
+			Handler:    _Coordinator_AcknowledgeStop_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

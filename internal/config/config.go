@@ -8,10 +8,13 @@ import (
 	"strconv"
 	"time"
 
+	"forgeswarm/internal/execution"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Config struct {
+	RecoveryPolicy                                                execution.Policy
+	ExecutionLimits                                               execution.Limits
 	HTTPAddr                                                      string
 	DatabaseURL                                                   string
 	RequestTimeout, ReadyTimeout, ConnectTimeout, ShutdownTimeout time.Duration
@@ -25,6 +28,11 @@ func Load() (Config, error) { return Parse(os.LookupEnv) }
 
 func Parse(env func(string) (string, bool)) (Config, error) {
 	c := Config{HTTPAddr: "127.0.0.1:8080", DatabaseURL: "postgres://forgeswarm:forgeswarm_dev@127.0.0.1:54329/forgeswarm?sslmode=disable", MaxConns: 10, SchedulerBatchSize: 16}
+	var recoveryErr error
+	c.RecoveryPolicy, c.ExecutionLimits, recoveryErr = RecoveryParse(env)
+	if recoveryErr != nil {
+		return Config{}, recoveryErr
+	}
 	for key, dest := range map[string]*string{"HTTP_ADDR": &c.HTTPAddr, "DATABASE_URL": &c.DatabaseURL} {
 		if value, ok := env(key); ok {
 			if value == "" {

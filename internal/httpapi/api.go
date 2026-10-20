@@ -68,6 +68,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/v1/workflows/{id}/cancel", a.method(http.MethodPost, a.cancel))
 	mux.HandleFunc("/v1/workflows/{id}/graph", a.method(http.MethodGet, a.graph))
 	mux.HandleFunc("/v1/workflows/{id}/events", a.method(http.MethodGet, a.events))
+	mux.HandleFunc("/v1/workflows/{id}/tasks/{task_id}", a.method(http.MethodGet, a.task))
+	mux.HandleFunc("/v1/workflows/{id}/tasks/{task_id}/attempts", a.method(http.MethodGet, a.attempts))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { a.fail(w, r, 404, "not_found", "Resource not found.") })
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -127,6 +129,9 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, status int, code, mes
 
 func (a *API) serviceError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, workflow.ErrSaturated):
+		w.Header().Set("Retry-After", "1")
+		a.fail(w, r, 429, "admission_saturated", "New-work capacity is temporarily full; retry safely.")
 	case errors.Is(err, workflow.ErrInvalid):
 		a.fail(w, r, 400, "invalid_request", "Invalid request.")
 	case errors.Is(err, workflow.ErrNotFound):
@@ -187,7 +192,7 @@ func objectKeys(dec *json.Decoder, allowed map[string]bool) error {
 				return workflow.ErrInvalid
 			}
 			for dec.More() {
-				if err := objectKeys(dec, map[string]bool{"key": true, "kind": true, "depends_on": true, "delay_ms": true}); err != nil {
+				if err := objectKeys(dec, map[string]bool{"key": true, "kind": true, "depends_on": true, "delay_ms": true, "timeout_ms": true, "max_attempts": true}); err != nil {
 					return err
 				}
 			}
@@ -213,7 +218,7 @@ func objectKeys(dec *json.Decoder, allowed map[string]bool) error {
 			if err != nil || token != json.Delim(']') {
 				return workflow.ErrInvalid
 			}
-		} else if key == "delay_ms" {
+		} else if key == "delay_ms" || key == "timeout_ms" || key == "max_attempts" {
 			token, err = dec.Token()
 			if err != nil {
 				return workflow.ErrInvalid
@@ -243,7 +248,7 @@ func decodeCreate(data []byte) (workflow.CreateInput, error) {
 		return workflow.CreateInput{}, workflow.ErrInvalid
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
-	if err := objectKeys(dec, map[string]bool{"name": true, "tasks": true}); err != nil {
+	if err := objectKeys(dec, map[string]bool{"name": true, "tasks": true, "timeout_ms": true}); err != nil {
 		return workflow.CreateInput{}, err
 	}
 	if _, err := dec.Token(); err != io.EOF {
@@ -418,4 +423,53 @@ func (a *API) graph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, result)
+}
+func (a *API) taskIDs(w http.ResponseWriter, r *http.Request) (uuid.UUID, uuid.UUID, bool) {
+	wf, ok := a.id(w, r)
+	if !ok {
+		return uuid.Nil, uuid.Nil, false
+	}
+	text := r.PathValue("task_id")
+	task, err := uuid.Parse(text)
+	if err != nil || len(text) != 36 || task == uuid.Nil {
+		a.fail(w, r, 400, "invalid_task_id", "Task ID must be a UUID.")
+		return wf, uuid.Nil, false
+	}
+	return wf, task, true
+}
+func (a *API) task(w http.ResponseWriter, r *http.Request) {
+	wf, task, ok := a.taskIDs(w, r)
+	if !ok {
+		return
+	}
+	if r.URL.RawQuery != "" {
+		a.serviceError(w, r, workflow.ErrInvalid)
+		return
+	}
+	value, err := a.service.InspectTask(r.Context(), wf, task)
+	if err != nil {
+		a.serviceError(w, r, err)
+		return
+	}
+	writeJSON(w, 200, value)
+}
+func (a *API) attempts(w http.ResponseWriter, r *http.Request) {
+	wf, task, ok := a.taskIDs(w, r)
+	if !ok {
+		return
+	}
+	after, limit, err := pagination(r.URL.RawQuery)
+	if r.URL.Query().Get("limit") == "" {
+		limit = 10
+	}
+	if err != nil || limit > 10 {
+		a.serviceError(w, r, workflow.ErrInvalid)
+		return
+	}
+	value, err := a.service.Attempts(r.Context(), wf, task, after, limit)
+	if err != nil {
+		a.serviceError(w, r, err)
+		return
+	}
+	writeJSON(w, 200, value)
 }

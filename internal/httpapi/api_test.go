@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"forgeswarm/internal/execution"
 	"forgeswarm/internal/workflow"
 	"github.com/google/uuid"
 )
@@ -26,6 +27,13 @@ type stubService struct {
 	wait   bool
 	after  int64
 	limit  int
+}
+
+func (s *stubService) InspectTask(ctx context.Context, wf, task uuid.UUID) (execution.TaskInspection, error) {
+	return execution.TaskInspection{}, s.result(ctx)
+}
+func (s *stubService) Attempts(ctx context.Context, wf, task uuid.UUID, after int64, limit int) (execution.AttemptPage, error) {
+	return execution.AttemptPage{}, s.result(ctx)
 }
 
 func (s *stubService) result(ctx context.Context) error {
@@ -92,6 +100,11 @@ func TestCreationBoundary(t *testing.T) {
 		{"depends_cycle", `{"name":"x","tasks":[{"key":"a","kind":"noop","depends_on":["a"]}]}`, "application/json", []string{"one"}, 400},
 		{"depends_valid", `{"name":"x","tasks":[{"key":"a","kind":"noop"},{"key":"b","kind":"noop","depends_on":["a"]}]}`, "application/json", []string{"one"}, 201},
 		{"delay_valid", `{"name":"x","tasks":[{"key":"a","kind":"delay","delay_ms":30000}]}`, "application/json", []string{"one"}, 201},
+		{"recovery_valid", `{"name":"x","timeout_ms":1000,"tasks":[{"key":"a","kind":"noop","timeout_ms":500,"max_attempts":2}]}`, "application/json", []string{"one"}, 201},
+		{"timeout_fractional", `{"name":"x","timeout_ms":100.5,"tasks":[{"key":"a","kind":"noop"}]}`, "application/json", []string{"one"}, 400},
+		{"timeout_null", `{"name":"x","timeout_ms":null,"tasks":[{"key":"a","kind":"noop"}]}`, "application/json", []string{"one"}, 400},
+		{"timeout_unbounded", `{"name":"x","timeout_ms":86400001,"tasks":[{"key":"a","kind":"noop"}]}`, "application/json", []string{"one"}, 400},
+		{"attempts_unbounded", `{"name":"x","tasks":[{"key":"a","kind":"noop","max_attempts":11}]}`, "application/json", []string{"one"}, 400},
 		{"delay_zero", `{"name":"x","tasks":[{"key":"a","kind":"delay","delay_ms":0}]}`, "application/json", []string{"one"}, 400},
 		{"delay_over_limit", `{"name":"x","tasks":[{"key":"a","kind":"delay","delay_ms":30001}]}`, "application/json", []string{"one"}, 400},
 		{"delay_fractional", `{"name":"x","tasks":[{"key":"a","kind":"delay","delay_ms":1.5}]}`, "application/json", []string{"one"}, 400},

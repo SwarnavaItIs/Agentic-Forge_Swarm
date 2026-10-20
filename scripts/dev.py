@@ -329,6 +329,10 @@ def main():
     os.chdir(ROOT)
     (ROOT / ".cache/go-tmp").mkdir(parents=True, exist_ok=True)
     command = sys.argv[1] if len(sys.argv) == 2 else "help"
+    if command=="verify-stage-04":
+        import stage04
+        stage04.verify()
+        return
     if command=="verify-stage-03":
         import stage03
         stage03.verify()
@@ -343,6 +347,20 @@ def main():
         return
     if command == "help":
         print("ForgeSwarm Stages 01/02/03: make <command> or python scripts/dev.py <command>\n"
+              "Stage 04: verify-stage-04; RETRY_WAIT persists capped jittered retry due times.\n"
+              "Migrate 00004 and upgrade API/coordinator/schedulers/workers together; old binaries cannot enforce new policies.\n"
+              "Defaults: workflow deadline 10m, task deadline 2m from creation, 3 attempts; retries never extend them.\n"
+              "POST timeout_ms (100-86400000) on workflow/task, task max_attempts (1-10); zero means default; normalization v4 preserves v1-v3.\n"
+              "MAX_WORKFLOWS=100, MAX_TASKS_PER_WORKFLOW=100, MAX_QUEUED_TASKS=10000, MAX_READY_TASKS=1000.\n"
+              "New admissions alone return 429 + Retry-After: 1; replay/cancellation/health/results remain available.\n"
+              "All services sharing a database must use the same admission/concurrency settings.\n"
+              "Active cancel enters CANCELLING, signals stop on renew, settles after stop acknowledgment or lease fence.\n"
+              "Lease fencing does not prove physical termination; cleanup_required is retained until acknowledged; sandbox teardown is Stage 05.\n"
+              "READY resends every 5s retain generation and change transport revision; capability wait is bounded to 30s.\n"
+              "GET /v1/workflows/{id}/tasks/{task_id} and /attempts?after=0&limit=10 expose bounded diagnostics.\n"
+              "Manual redrive is deferred/read-only; accepted outcomes and terminal tasks cannot be rewritten.\n"
+              "FIFO/age scans rotate; persistent lock contention has no strict fairness guarantee.\n"
+              "Local broker: docker compose --profile execution up -d broker; INSECURE_LOCAL=true and nats://127.0.0.1:4222 only for loopback.\n"
               "Stage 03: verify-stage-03, proto-check/proto-generate, run-coordinator, run-relay, run-worker.\n"
               "Migrate first, then run API/coordinator/scheduler/relay and >=2 workers.\n"
               "Workers require WORKER_TOKEN matching RPC_KEYS_FILE identities; NATS_TOKEN is required.\n"
@@ -350,7 +368,7 @@ def main():
               "Defaults: 2 slots/worker, 4 total, 3 attempts, 3s leases; only noop/delay (1-30000ms).\n"
               "Normalization v1/v2 hashes stay frozen; delay input uses v3.\n"
               "Outbox + file-backed JetStream provide at-least-once dispatch with fenced results.\n"
-              "Single-node broker disk loss/READY age republish are Stage 04 gaps; no measured throughput claim.\n"
+              "Single-node broker disk loss is recovered by Stage-04 READY republishing when PostgreSQL survives; no replication/throughput claim.\n"
               "help, db-up, db-down (keeps data), migrate-up, migrate-status, run, fmt, vet, test,\n"
               "test-race, test-integration (requires Docker; never skips), build, smoke, verify-stage-01,\n"
               "verify-stage-02, run-scheduler\n"

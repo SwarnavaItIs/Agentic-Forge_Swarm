@@ -63,7 +63,11 @@ func Handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 			_ = msg.DoubleAck(call)
 			done()
 		} else {
-			_ = msg.NakWithDelay(time.Second)
+			delay := time.Second
+			if status.Code(err) == codes.Unimplemented {
+				delay = 5 * time.Second
+			}
+			_ = msg.NakWithDelay(delay)
 			logger.Warn("worker_claim_deferred", "error_class", status.Code(err).String())
 		}
 		return
@@ -71,9 +75,22 @@ func Handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 	call, done := context.WithTimeout(ctx, c.RPCTimeout)
 	_ = msg.DoubleAck(call)
 	done()
+	owned := &workerv1.AttemptRequest{InstanceId: instance.String(), AttemptId: a.Id, Generation: a.Generation}
+	stopped := func() {
+		stopCtx, stopDone := context.WithTimeout(context.Background(), c.RPCTimeout)
+		defer stopDone()
+		_, _ = client.AcknowledgeStop(stopCtx, owned)
+	}
+	call, done = context.WithTimeout(ctx, c.RPCTimeout)
+	_, err = client.AuthorizeTool(call, owned)
+	done()
+	if err != nil {
+		stopped()
+		return
+	}
 	// Even an ambiguous broker ack does not revoke an already-durable claim.
 	logger.Info("diagnostic_started", "attempt_id", a.Id, "task_id", a.TaskId, "generation", a.Generation)
-	execCtx, cancelExec := context.WithCancel(ctx)
+	execCtx, cancelExec := context.WithDeadline(ctx, a.DeadlineAt.AsTime())
 	defer cancelExec()
 	renewCtx, stopRenew := context.WithCancel(ctx)
 	renewDone := make(chan struct{})
@@ -81,9 +98,12 @@ func Handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 		defer close(renewDone)
 		for pause(renewCtx, c.Limits.Lease/3) {
 			call, done := context.WithTimeout(renewCtx, c.RPCTimeout)
-			_, err := client.RenewLease(call, &workerv1.AttemptRequest{InstanceId: instance.String(), AttemptId: a.Id, Generation: a.Generation})
+			renewed, err := client.RenewLease(call, owned)
 			done()
-			if err != nil {
+			if err != nil && renewCtx.Err() != nil {
+				return
+			} // normal completion stopped the renewal loop
+			if err != nil || renewed.StopRequested {
 				cancelExec()
 				return
 			}
@@ -100,10 +120,15 @@ func Handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 	stopRenew()
 	<-renewDone
 	if execCtx.Err() != nil || ctx.Err() != nil {
+		stopped()
+		logger.Info("diagnostic_stopped", "attempt_id", a.Id, "reason", "lease_cancel_or_deadline")
 		return
 	} // ownership/cancellation loss: no late result
 	body, _ := json.Marshal(map[string]any{"kind": a.Kind, "delay_ms": a.DelayMs})
 	r := &workerv1.OutcomeRequest{InstanceId: instance.String(), AttemptId: a.Id, Generation: a.Generation, ResultJson: body}
+	if !success {
+		r.FailureClass = execution.Unsupported
+	}
 	for i := 0; i < 3; i++ {
 		call, done := context.WithTimeout(ctx, c.RPCTimeout)
 		if success {
@@ -117,6 +142,7 @@ func Handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 			return
 		}
 		if status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded {
+			stopped()
 			return
 		}
 		if !pause(ctx, c.Poll) {
@@ -170,6 +196,9 @@ func Run(stop context.Context, client workerv1.CoordinatorClient, b *broker.Brok
 		batch, err := b.Consumer.Fetch(available, jetstream.FetchMaxWait(300*time.Millisecond))
 		if err != nil {
 			logger.Warn("worker_fetch_failed", "error_class", "broker_unavailable")
+			ensureCtx, ensureDone := context.WithTimeout(stop, c.RPCTimeout)
+			_ = b.Ensure(ensureCtx)
+			ensureDone()
 			if !pause(stop, c.Poll) {
 				break
 			}
@@ -194,6 +223,12 @@ func Run(stop context.Context, client workerv1.CoordinatorClient, b *broker.Brok
 		}
 		if batch.Error() != nil {
 			logger.Warn("worker_fetch_failed", "error_class", "broker_unavailable")
+			ensureCtx, ensureDone := context.WithTimeout(stop, c.RPCTimeout)
+			_ = b.Ensure(ensureCtx)
+			ensureDone()
+			if !pause(stop, c.Poll) {
+				break
+			}
 		}
 	}
 	call, done := context.WithTimeout(context.Background(), c.RPCTimeout)

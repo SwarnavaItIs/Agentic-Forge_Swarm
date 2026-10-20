@@ -39,7 +39,11 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	defer pool.Close()
-	api := httpapi.New(postgres.New(pool), logger, cfg.RequestTimeout, cfg.ReadyTimeout)
+	store, err := postgres.NewConfigured(pool, cfg.ExecutionLimits, cfg.RecoveryPolicy)
+	if err != nil {
+		return err
+	}
+	api := httpapi.New(store, logger, cfg.RequestTimeout, cfg.ReadyTimeout)
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler(), ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		ReadTimeout: cfg.ReadTimeout, WriteTimeout: cfg.WriteTimeout, IdleTimeout: cfg.IdleTimeout, MaxHeaderBytes: 16 << 10}
 	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

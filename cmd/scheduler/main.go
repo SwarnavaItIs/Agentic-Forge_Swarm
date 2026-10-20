@@ -37,7 +37,11 @@ func run(logger *slog.Logger) error {
 	}
 	defer pool.Close()
 	logger.Info("scheduler_started", "batch_size", cfg.SchedulerBatchSize, "interval", cfg.SchedulerInterval.String())
-	err = scheduler.Run(ctx, postgres.New(pool), scheduler.Settings{BatchSize: cfg.SchedulerBatchSize, Interval: cfg.SchedulerInterval, ScanTimeout: cfg.SchedulerScanTimeout}, logger)
+	store, err := postgres.NewConfigured(pool, cfg.ExecutionLimits, cfg.RecoveryPolicy)
+	if err != nil {
+		return err
+	}
+	err = scheduler.Run(ctx, store, scheduler.Settings{BatchSize: cfg.SchedulerBatchSize, Interval: cfg.SchedulerInterval, ScanTimeout: cfg.SchedulerScanTimeout}, logger)
 	logger.Info("scheduler_drained")
 	return err
 }

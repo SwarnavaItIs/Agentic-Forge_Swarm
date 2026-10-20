@@ -58,18 +58,29 @@ func Open(ctx context.Context, c config.Distributed) (*Broker, error) {
 		nc.Close()
 		return nil, err
 	}
+	consumer, err := ensureTopology(ctx, js)
+	if err != nil {
+		nc.Close()
+		return nil, err
+	}
+	return &Broker{nc, js, consumer}, nil
+}
+
+// Recreate configured streams/consumer after broker storage/topology loss.
+// Consumer handles address a stable stream/durable name, so existing handles
+// remain usable; no shared client field is mutated during concurrent recovery.
+func (b *Broker) Ensure(ctx context.Context) error { _, err := ensureTopology(ctx, b.JS); return err }
+func ensureTopology(ctx context.Context, js jetstream.JetStream) (jetstream.Consumer, error) {
 	for _, cfg := range []jetstream.StreamConfig{{Name: Stream, Subjects: []string{Subject}, Storage: jetstream.FileStorage, Replicas: 1, MaxMsgs: 100000, MaxBytes: 64 << 20, MaxMsgSize: 4096, MaxAge: 24 * time.Hour, Duplicates: 2 * time.Minute}, {Name: Quarantine, Subjects: []string{"forgeswarm.quarantine.v1"}, Storage: jetstream.FileStorage, Replicas: 1, MaxMsgs: 10000, MaxBytes: 16 << 20, MaxMsgSize: 1024, MaxAge: 7 * 24 * time.Hour}} {
-		if _, err = js.CreateOrUpdateStream(ctx, cfg); err != nil {
-			nc.Close()
+		if _, err := js.CreateOrUpdateStream(ctx, cfg); err != nil {
 			return nil, errors.New("broker_stream_setup_failed")
 		}
 	}
 	consumer, err := js.CreateOrUpdateConsumer(ctx, Stream, jetstream.ConsumerConfig{Durable: "DIAGNOSTIC_WORKERS", FilterSubject: Subject, AckPolicy: jetstream.AckExplicitPolicy, AckWait: 2 * time.Second, MaxDeliver: -1, MaxAckPending: 1000, MaxWaiting: 128, MaxRequestBatch: 100})
 	if err != nil {
-		nc.Close()
 		return nil, errors.New("broker_consumer_setup_failed")
 	}
-	return &Broker{nc, js, consumer}, nil
+	return consumer, nil
 }
 func (b *Broker) Close() { b.Conn.Close() }
 func (b *Broker) Publish(ctx context.Context, id string, body []byte) error {
@@ -77,6 +88,11 @@ func (b *Broker) Publish(ctx context.Context, id string, body []byte) error {
 		return errors.New("dispatch_too_large")
 	}
 	_, err := b.JS.Publish(ctx, Subject, body, jetstream.WithMsgID(id))
+	if err != nil && ctx.Err() == nil {
+		if b.Ensure(ctx) == nil {
+			_, err = b.JS.Publish(ctx, Subject, body, jetstream.WithMsgID(id))
+		}
+	}
 	if err != nil {
 		return errors.New("broker_publish_unavailable")
 	}

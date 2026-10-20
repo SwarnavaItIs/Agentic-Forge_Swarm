@@ -33,7 +33,7 @@ func TestNormalizationV1AndOrder(t *testing.T) {
 	if hex.EncodeToString(one[:]) != want {
 		t.Fatalf("normalization v1 hash: %x", one)
 	}
-	if _, err := HashForVersion(a, 4); err != ErrState {
+	if _, err := HashForVersion(a, 5); err != ErrState {
 		t.Fatalf("unknown version: %v", err)
 	}
 }
@@ -62,6 +62,24 @@ func TestValidation(t *testing.T) {
 	for _, key := range []string{"", "a b", "a,b", strings.Repeat("x", 129)} {
 		if ValidCreationKey(key) {
 			t.Fatal(key)
+		}
+	}
+}
+func TestV3GoldenAndV4PolicyCompatibility(t *testing.T) {
+	in := CreateInput{Name: "v3 golden", Tasks: []TaskDefinition{{Key: "a", Kind: "delay", DelayMS: 123}}}
+	hash, err := HashForVersion(in, 3)
+	if err != nil || hex.EncodeToString(hash[:]) != "67c67ea26778e09384355b8f8af069d42182c46a3bce81beeec2c8b9136257d7" {
+		t.Fatal("v3 persisted encoding changed", err)
+	}
+	for _, change := range []func(*CreateInput){func(v *CreateInput) { v.TimeoutMS = 1000 }, func(v *CreateInput) { v.Tasks[0].TimeoutMS = 1000 }, func(v *CreateInput) { v.Tasks[0].MaxAttempts = 2 }} {
+		updated := in
+		updated.Tasks = append([]TaskDefinition(nil), in.Tasks...)
+		change(&updated)
+		if _, err = HashForVersion(updated, 3); err != ErrConflict {
+			t.Fatal("new policy field projected onto v3", err)
+		}
+		if _, err = HashForVersion(updated, 4); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

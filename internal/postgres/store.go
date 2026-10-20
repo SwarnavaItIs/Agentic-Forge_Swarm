@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"time"
 
@@ -20,14 +21,25 @@ import (
 type Store struct {
 	pool   *pgxpool.Pool
 	limits execution.Limits
+	policy execution.Policy
+	random func() float64
 }
 
-func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool, limits: execution.DefaultLimits()} }
+func New(pool *pgxpool.Pool) *Store {
+	s, _ := NewWithPolicy(pool, execution.DefaultLimits(), execution.DefaultPolicy(), rand.Float64)
+	return s
+}
 func NewWithLimits(pool *pgxpool.Pool, l execution.Limits) (*Store, error) {
-	if !l.Valid() {
+	return NewWithPolicy(pool, l, execution.DefaultPolicy(), rand.Float64)
+}
+func NewConfigured(pool *pgxpool.Pool, l execution.Limits, p execution.Policy) (*Store, error) {
+	return NewWithPolicy(pool, l, p, rand.Float64)
+}
+func NewWithPolicy(pool *pgxpool.Pool, l execution.Limits, p execution.Policy, rng func() float64) (*Store, error) {
+	if !l.Valid() || !p.Valid() || rng == nil {
 		return nil, workflow.ErrInvalid
 	}
-	return &Store{pool: pool, limits: l}, nil
+	return &Store{pool: pool, limits: l, policy: p, random: rng}, nil
 }
 
 // Cleanup has its own bounded context: request cancellation does not prevent a
@@ -83,14 +95,58 @@ func (s *Store) Create(ctx context.Context, key string, in workflow.CreateInput)
 		return workflow.Receipt{}, classify(err)
 	}
 	defer rollback(tx)
+	if err = admission(ctx, tx); err != nil {
+		return workflow.Receipt{}, err
+	}
+	// Resolve immutable creation receipts before checking new-admission limits.
+	var prior workflow.Receipt
+	var stored []byte
+	var oldVersion int
+	err = tx.QueryRow(ctx, `SELECT id,created_at,request_hash,request_schema_version FROM workflows WHERE creation_key=$1`, key).Scan(&prior.ID, &prior.CreatedAt, &stored, &oldVersion)
+	if err == nil {
+		h, e := workflow.HashForVersion(in, oldVersion)
+		if e != nil {
+			return prior, e
+		}
+		if !bytes.Equal(h[:], stored) {
+			return prior, workflow.ErrConflict
+		}
+		if e = tx.Commit(ctx); e != nil {
+			return workflow.Receipt{}, classify(e)
+		}
+		return prior, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return workflow.Receipt{}, classify(err)
+	}
+	if len(in.Tasks) > s.policy.MaxTasks {
+		return workflow.Receipt{}, workflow.ErrInvalid
+	}
+	var workflows, queued int
+	err = tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM workflows WHERE status IN ('PENDING','RUNNING','CANCELLING')),(SELECT count(*) FROM tasks WHERE status IN ('PENDING','READY','RUNNING','RETRY_WAIT'))`).Scan(&workflows, &queued)
+	if err != nil {
+		return workflow.Receipt{}, classify(err)
+	}
+	if workflows >= s.policy.MaxWorkflows || queued+len(in.Tasks) > s.policy.MaxQueued {
+		return workflow.Receipt{}, workflow.ErrSaturated
+	}
+	var now time.Time
+	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
+		return workflow.Receipt{}, classify(err)
+	}
+	timeout := s.policy.WorkflowTimeout
+	if in.TimeoutMS > 0 {
+		timeout = time.Duration(in.TimeoutMS) * time.Millisecond
+	}
+	deadline := now.Add(timeout)
 	id, err := uuid.NewRandom()
 	if err != nil {
 		return workflow.Receipt{}, err
 	}
 	var receipt workflow.Receipt
-	err = tx.QueryRow(ctx, `INSERT INTO workflows(id,name,status,version,creation_key,request_hash,request_schema_version)
-		VALUES($1,$2,'PENDING',1,$3,$4,$5) ON CONFLICT (creation_key) DO NOTHING RETURNING id,created_at`,
-		id, in.Name, key, hash[:], workflow.RequestSchemaVersion).Scan(&receipt.ID, &receipt.CreatedAt)
+	err = tx.QueryRow(ctx, `INSERT INTO workflows(id,name,status,version,creation_key,request_hash,request_schema_version,deadline_at)
+		VALUES($1,$2,'PENDING',1,$3,$4,$5,$6) ON CONFLICT (creation_key) DO NOTHING RETURNING id,created_at`,
+		id, in.Name, key, hash[:], workflow.RequestSchemaVersion, deadline).Scan(&receipt.ID, &receipt.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// This MUST be a separate Read Committed statement: the winning row may
 		// not have been visible to the INSERT's original snapshot.
@@ -114,12 +170,24 @@ func (s *Store) Create(ctx context.Context, key string, in workflow.CreateInput)
 		}
 		taskIDs := make(map[string]uuid.UUID, len(in.Tasks))
 		for position, task := range in.Tasks {
+			taskTimeout := s.policy.TaskTimeout
+			if task.TimeoutMS > 0 {
+				taskTimeout = time.Duration(task.TimeoutMS) * time.Millisecond
+			}
+			taskDeadline := now.Add(taskTimeout)
+			if deadline.Before(taskDeadline) {
+				taskDeadline = deadline
+			}
+			maxAttempts := task.MaxAttempts
+			if maxAttempts == 0 {
+				maxAttempts = s.limits.MaxAttempts
+			}
 			taskID, err := uuid.NewRandom()
 			if err != nil {
 				return workflow.Receipt{}, err
 			}
 			taskIDs[task.Key] = taskID
-			_, err = tx.Exec(ctx, `INSERT INTO tasks(id,workflow_id,task_key,position,kind,delay_ms,status) VALUES($1,$2,$3,$4,$5,$6,'PENDING')`, taskID, id, task.Key, position, task.Kind, task.DelayMS)
+			_, err = tx.Exec(ctx, `INSERT INTO tasks(id,workflow_id,task_key,position,kind,delay_ms,status,max_attempts,deadline_at) VALUES($1,$2,$3,$4,$5,$6,'PENDING',$7,$8)`, taskID, id, task.Key, position, task.Kind, task.DelayMS, maxAttempts, taskDeadline)
 			if err != nil {
 				return workflow.Receipt{}, classify(err)
 			}
@@ -146,48 +214,29 @@ func (s *Store) Create(ctx context.Context, key string, in workflow.CreateInput)
 }
 
 func (s *Store) Cancel(ctx context.Context, id uuid.UUID) (workflow.CancellationResult, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return workflow.CancellationResult{}, classify(err)
 	}
 	defer rollback(tx)
-	result := workflow.CancellationResult{ID: id}
-	var sequence int64
-	err = tx.QueryRow(ctx, `SELECT status,version,last_event_sequence FROM workflows WHERE id=$1 FOR UPDATE`, id).Scan(&result.Status, &result.Version, &sequence)
-	if err != nil {
-		return workflow.CancellationResult{}, classify(err)
-	}
-	change, err := workflow.Cancellation(result.Status, result.Version)
+	p, err := lockParent(ctx, tx, id)
 	if err != nil {
 		return workflow.CancellationResult{}, err
 	}
-	if change {
-		_, err = tx.Exec(ctx, `UPDATE task_attempts SET state='CANCELLED',finished_at=clock_timestamp() WHERE workflow_id=$1 AND state='RUNNING'`, id)
-		if err != nil {
-			return workflow.CancellationResult{}, classify(err)
-		}
-		// Parent lock serializes all cancellation writers across every process.
-		// clock_timestamp avoids moving updated_at backwards after a lock wait.
-		var updatedAt time.Time
-		err = tx.QueryRow(ctx, `UPDATE workflows SET status='CANCELLED',version=version+1,last_event_sequence=last_event_sequence+1,updated_at=clock_timestamp() WHERE id=$1 RETURNING status,version,updated_at`, id).
-			Scan(&result.Status, &result.Version, &updatedAt)
-		if err != nil {
-			return workflow.CancellationResult{}, classify(err)
-		}
-		tag, err := tx.Exec(ctx, `UPDATE tasks SET status='CANCELLED',updated_at=$2 WHERE workflow_id=$1 AND status IN ('PENDING','READY','RUNNING')`, id, updatedAt)
-		if err != nil {
-			return workflow.CancellationResult{}, classify(err)
-		}
-		_, err = tx.Exec(ctx, `INSERT INTO workflow_events(workflow_id,sequence,event_type,payload,occurred_at)
-			VALUES($1,$2,'workflow.cancelled',jsonb_build_object('cancelled_task_count',$3::integer),$4)`, id, sequence+1, int(tag.RowsAffected()), updatedAt)
-		if err != nil {
-			return workflow.CancellationResult{}, classify(err)
-		}
+	before := p.sequence
+	if err = beginCancellation(ctx, tx, &p, execution.ExplicitCancel); err != nil {
+		return workflow.CancellationResult{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if p.sequence != before {
+		if _, err = tx.Exec(ctx, `UPDATE workflows SET status=$2,terminal_reason=$3,version=version+1,last_event_sequence=$4,updated_at=$5 WHERE id=$1`, id, p.status, p.reason, p.sequence, p.at); err != nil {
+			return workflow.CancellationResult{}, classify(err)
+		}
+		p.version++
+	}
+	if err = tx.Commit(ctx); err != nil {
 		return workflow.CancellationResult{}, classify(err)
 	}
-	return result, nil
+	return workflow.CancellationResult{ID: id, Status: p.status, Version: p.version}, nil
 }
 
 func (s *Store) Details(ctx context.Context, id uuid.UUID) (workflow.Details, error) {
@@ -197,8 +246,8 @@ func (s *Store) Details(ctx context.Context, id uuid.UUID) (workflow.Details, er
 	}
 	defer rollback(tx)
 	var result workflow.Details
-	err = tx.QueryRow(ctx, `SELECT id,name,status,version,created_at,updated_at FROM workflows WHERE id=$1`, id).
-		Scan(&result.ID, &result.Name, &result.Status, &result.Version, &result.CreatedAt, &result.UpdatedAt)
+	err = tx.QueryRow(ctx, `SELECT id,name,status,version,created_at,updated_at,deadline_at,terminal_reason FROM workflows WHERE id=$1`, id).
+		Scan(&result.ID, &result.Name, &result.Status, &result.Version, &result.CreatedAt, &result.UpdatedAt, &result.DeadlineAt, &result.TerminalReason)
 	if err != nil {
 		return workflow.Details{}, classify(err)
 	}
@@ -283,5 +332,8 @@ func (s *Store) Ready(ctx context.Context) error {
 		return classify(err)
 	}
 	rows.Close()
-	return classify(rows.Err())
+	if err = rows.Err(); err != nil {
+		return classify(err)
+	}
+	return s.CheckConsistency(ctx)
 }

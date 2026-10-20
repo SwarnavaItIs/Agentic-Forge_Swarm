@@ -76,6 +76,24 @@ func expire(t *testing.T, f *fixture, a execution.Attempt) {
 	}
 	waitFor(t, f, `SELECT count(*) FROM task_attempts WHERE id=$1 AND lease_expires_at<=clock_timestamp()`, a.ID)
 }
+
+// Stage 04 intentionally replaces immediate lease-loss requeue with persisted
+// RETRY_WAIT. Earlier ownership checks still require the next eligible claim.
+func awaitRetryReady(t *testing.T, f *fixture, wf, task uuid.UUID) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		reconcile(t, f, wf)
+		g := snapshot(t, f, wf)
+		for _, n := range g.Nodes {
+			if n.ID == task && (n.Status == workflow.Ready || n.Status == workflow.Failed) {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("retry did not become durably eligible")
+}
 func TestCompetingClaimsRetryAndTransactionalCapacity(t *testing.T) {
 	f := setup(t)
 	ia, ib := register(t, f, "worker_a", 1), register(t, f, "worker_b", 1)
@@ -231,7 +249,7 @@ func TestStage02ReadyMigrationAndNormalizationCompatibility(t *testing.T) {
 	if _, err = f.p1.Exec(f.ctx, `UPDATE tasks SET delay_ms=20 WHERE workflow_id=$1`, newReceipt.ID); err == nil {
 		t.Fatal("delay definition mutable")
 	}
-	if scalar(t, f, `SELECT request_schema_version FROM workflows WHERE id=$1`, newReceipt.ID) != 3 {
+	if scalar(t, f, `SELECT request_schema_version FROM workflows WHERE id=$1`, newReceipt.ID) != workflow.RequestSchemaVersion {
 		t.Fatal("new normalization version missing")
 	}
 }
@@ -248,6 +266,7 @@ func TestExpiryFencingExhaustionAndCancellation(t *testing.T) {
 		t.Fatal("expired result accepted", err)
 	}
 	reconcile(t, f, wf)
+	awaitRetryReady(t, f, wf, task)
 	fresh := claimTask(t, f, "worker_b", ib, task, 2)
 	if _, err := f.s1.FinishAttempt(f.ctx, "worker_a", ia, old.ID, 1, true, []byte(`{}`)); !errors.Is(err, execution.ErrStale) {
 		t.Fatal("superseded attempt result accepted", err)
@@ -264,6 +283,7 @@ func TestExpiryFencingExhaustionAndCancellation(t *testing.T) {
 		a := claimTask(t, f, "worker_a", ia, task, int64(i))
 		expire(t, f, a)
 		reconcile(t, f, wf)
+		awaitRetryReady(t, f, wf, task)
 	}
 	if snapshot(t, f, wf).Status != workflow.Failed || scalar(t, f, `SELECT count(*) FROM task_attempts WHERE task_id=$1 AND state='LOST'`, task) != 3 || scalar(t, f, `SELECT count(*) FROM outbox WHERE task_id=$1`, task) != 3 {
 		t.Fatal("unbounded attempts or incorrect exhaustion")
@@ -276,9 +296,17 @@ func TestExpiryFencingExhaustionAndCancellation(t *testing.T) {
 	if _, err := f.s1.FinishAttempt(f.ctx, "worker_a", ia, a.ID, 1, true, []byte(`{}`)); !errors.Is(err, execution.ErrStale) {
 		t.Fatal("late cancelled success accepted", err)
 	}
-	if _, err := f.s1.RenewLease(f.ctx, "worker_a", ia, a.ID, 1); !errors.Is(err, execution.ErrStale) {
-		t.Fatal("cancelled renewal accepted", err)
+	signal, err := f.s1.RenewLease(f.ctx, "worker_a", ia, a.ID, 1)
+	if err != nil || !signal.StopRequested || !signal.LeaseExpiresAt.Equal(a.LeaseExpiresAt) {
+		t.Fatal("cancellation did not signal stop without renewal", err)
 	}
+	if snapshot(t, f, wf).Status != workflow.Cancelling {
+		t.Fatal("active cancellation falsely claimed remote termination")
+	}
+	if _, err = f.s1.AcknowledgeStop(f.ctx, "worker_a", ia, a.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	reconcile(t, f, wf)
 	if scalar(t, f, `SELECT count(*) FROM task_attempts WHERE id=$1 AND state='CANCELLED'`, a.ID) != 1 {
 		t.Fatal("cancel did not close active attempt")
 	}
@@ -752,6 +780,7 @@ func TestWorkerProcessKillsAtDeliveryAndResultBoundaries(t *testing.T) {
 			}
 			// Eligibility is reconstructed from DB even though the original broker
 			// message was acked by a different process after the durable claim.
+			awaitRetryReady(t, f, wf, task)
 			gen := scalar(t, f, `SELECT dispatch_generation FROM tasks WHERE id=$1`, task)
 			instance := uuid.New()
 			if _, err = f.s1.RegisterWorker(f.ctx, "worker_b", instance, []string{"noop"}, 1); err != nil {

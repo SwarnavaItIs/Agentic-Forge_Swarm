@@ -49,7 +49,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	defer pool.Close()
-	store, err := postgres.NewWithLimits(pool, c.Limits)
+	store, err := postgres.NewConfigured(pool, c.Limits, base.RecoveryPolicy)
 	if err != nil {
 		return err
 	}

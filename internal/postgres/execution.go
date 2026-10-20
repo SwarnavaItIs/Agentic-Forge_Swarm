@@ -50,7 +50,7 @@ func (s *Store) RegisterWorker(ctx context.Context, id string, instance uuid.UUI
 	}
 	if err == nil {
 		var active int
-		err = tx.QueryRow(ctx, `SELECT count(*) FROM task_attempts WHERE worker_id=$1 AND state='RUNNING' AND lease_expires_at>clock_timestamp()`, id).Scan(&active)
+		err = tx.QueryRow(ctx, `SELECT count(*) FROM task_attempts WHERE worker_id=$1 AND state='RUNNING'`, id).Scan(&active)
 		if err != nil {
 			return execution.Worker{}, classify(err)
 		}
@@ -85,7 +85,7 @@ func (s *Store) HeartbeatWorker(ctx context.Context, id string, instance uuid.UU
 }
 func lockParent(ctx context.Context, tx pgx.Tx, id uuid.UUID) (lockedWorkflow, error) {
 	p := lockedWorkflow{id: id}
-	err := tx.QueryRow(ctx, `SELECT status,version,last_event_sequence FROM workflows WHERE id=$1 FOR UPDATE`, id).Scan(&p.status, &p.version, &p.sequence)
+	err := tx.QueryRow(ctx, `SELECT status,version,last_event_sequence,deadline_at,terminal_reason FROM workflows WHERE id=$1 FOR UPDATE`, id).Scan(&p.status, &p.version, &p.sequence, &p.deadline, &p.reason)
 	return p, classify(err)
 }
 func lockWorker(ctx context.Context, tx pgx.Tx, id string, instance uuid.UUID) (execution.Worker, error) {
@@ -97,11 +97,11 @@ func lockWorker(ctx context.Context, tx pgx.Tx, id string, instance uuid.UUID) (
 	return w, classify(err)
 }
 
-const attemptColumns = `a.id,a.task_id,a.attempt_number,a.generation,a.state,t.kind,t.delay_ms,a.started_at,a.lease_expires_at,a.finished_at,a.outcome_digest,a.result_metadata,a.worker_id,a.worker_instance_id`
+const attemptColumns = `a.id,a.task_id,a.attempt_number,a.generation,a.state,t.kind,t.delay_ms,a.started_at,a.lease_expires_at,a.finished_at,a.outcome_digest,a.result_metadata,a.worker_id,a.worker_instance_id,t.deadline_at,a.cancel_requested_at IS NOT NULL,a.stop_reason,a.cleanup_required,a.last_error_class`
 
 func readAttempt(ctx context.Context, tx pgx.Tx, id uuid.UUID) (execution.Attempt, error) {
 	var a execution.Attempt
-	err := tx.QueryRow(ctx, `SELECT `+attemptColumns+` FROM task_attempts a JOIN tasks t ON t.id=a.task_id WHERE a.id=$1`, id).Scan(&a.ID, &a.TaskID, &a.Number, &a.Generation, &a.State, &a.Kind, &a.DelayMS, &a.StartedAt, &a.LeaseExpiresAt, &a.FinishedAt, &a.Digest, &a.Result, &a.WorkerID, &a.Instance)
+	err := tx.QueryRow(ctx, `SELECT `+attemptColumns+` FROM task_attempts a JOIN tasks t ON t.id=a.task_id WHERE a.id=$1`, id).Scan(&a.ID, &a.TaskID, &a.Number, &a.Generation, &a.State, &a.Kind, &a.DelayMS, &a.StartedAt, &a.LeaseExpiresAt, &a.FinishedAt, &a.Digest, &a.Result, &a.WorkerID, &a.Instance, &a.DeadlineAt, &a.StopRequested, &a.StopReason, &a.CleanupRequired, &a.LastError)
 	return a, classify(err)
 }
 
@@ -152,13 +152,22 @@ func (s *Store) ClaimTask(ctx context.Context, worker string, instance, task, re
 	var gen int64
 	var current *uuid.UUID
 	var count int
-	err = tx.QueryRow(ctx, `SELECT status,kind,dispatch_generation,current_attempt_id,attempt_count FROM tasks WHERE id=$1 FOR UPDATE`, task).Scan(&state, &kind, &gen, &current, &count)
+	var maxAttempts int
+	var deadline time.Time
+	err = tx.QueryRow(ctx, `SELECT status,kind,dispatch_generation,current_attempt_id,attempt_count,max_attempts,deadline_at FROM tasks WHERE id=$1 FOR UPDATE`, task).Scan(&state, &kind, &gen, &current, &count, &maxAttempts, &deadline)
 	if err != nil {
 		return execution.Attempt{}, classify(err)
 	}
 	w, err := lockWorker(ctx, tx, worker, instance)
 	if err != nil {
 		return execution.Attempt{}, err
+	}
+	now, err := dbNow(ctx, tx)
+	if err != nil {
+		return execution.Attempt{}, err
+	}
+	if (p.status != workflow.Pending && p.status != workflow.Running) || !now.Before(deadline) || !now.Before(p.deadline) {
+		return execution.Attempt{}, execution.ErrObsolete
 	}
 	var retry uuid.UUID
 	err = tx.QueryRow(ctx, `SELECT id FROM task_attempts WHERE worker_id=$1 AND claim_request_id=$2`, worker, request).Scan(&retry)
@@ -175,7 +184,7 @@ func (s *Store) ClaimTask(ctx context.Context, worker string, instance, task, re
 		if err != nil {
 			return a, classify(err)
 		}
-		if current == nil || *current != a.ID || state != workflow.Running || a.State != workflow.Running || gen != generation || !live {
+		if current == nil || *current != a.ID || state != workflow.Running || a.State != workflow.Running || gen != generation || !live || a.StopRequested {
 			return execution.Attempt{}, execution.ErrObsolete
 		}
 		if err = tx.Commit(ctx); err != nil {
@@ -199,25 +208,32 @@ func (s *Store) ClaimTask(ctx context.Context, worker string, instance, task, re
 		return execution.Attempt{}, execution.ErrDraining
 	}
 	if !slices.Contains(w.Capabilities, kind) {
-		return execution.Attempt{}, execution.ErrWorker
+		return execution.Attempt{}, execution.ErrCapability
 	}
 	var own, total int
-	err = tx.QueryRow(ctx, `SELECT count(*) FILTER(WHERE worker_id=$1),count(*) FROM task_attempts WHERE state='RUNNING' AND lease_expires_at>clock_timestamp()`, worker).Scan(&own, &total)
+	err = tx.QueryRow(ctx, `SELECT count(*) FILTER(WHERE worker_id=$1),count(*) FROM task_attempts WHERE state='RUNNING'`, worker).Scan(&own, &total)
 	if err != nil {
 		return execution.Attempt{}, classify(err)
 	}
 	if own >= w.Capacity || total >= s.limits.TotalCapacity {
 		return execution.Attempt{}, execution.ErrCapacity
 	}
-	if count >= s.limits.MaxAttempts {
+	if count >= maxAttempts {
 		return execution.Attempt{}, execution.ErrObsolete
 	}
 	attemptID, err := uuid.NewRandom()
 	if err != nil {
 		return execution.Attempt{}, err
 	}
+	lease := now.Add(s.limits.Lease)
+	if deadline.Before(lease) {
+		lease = deadline
+	}
+	if p.deadline.Before(lease) {
+		lease = p.deadline
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO task_attempts(id,workflow_id,task_id,attempt_number,worker_id,worker_instance_id,claim_request_id,generation,started_at,lease_expires_at,state)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,clock_timestamp(),clock_timestamp()+$9*interval '1 millisecond','RUNNING')`, attemptID, p.id, task, count+1, worker, instance, request, generation, s.limits.Lease.Milliseconds())
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'RUNNING')`, attemptID, p.id, task, count+1, worker, instance, request, generation, now, lease)
 	if err != nil {
 		return execution.Attempt{}, classify(err)
 	}
@@ -276,12 +292,23 @@ func withAttempt(ctx context.Context, tx pgx.Tx, worker string, instance, id uui
 			return p, a, false, err
 		}
 	}
-	if a.WorkerID != worker || a.Instance != instance || a.Generation != generation || current == nil || *current != id || gen != generation {
+	accepted := a.State == workflow.Succeeded || a.State == workflow.Failed
+	if a.WorkerID != worker || a.Instance != instance || a.Generation != generation || (!accepted && (current == nil || *current != id || gen != generation)) {
 		return p, a, false, execution.ErrStale
 	}
-	var live bool
-	err = tx.QueryRow(ctx, `SELECT lease_expires_at>clock_timestamp() FROM task_attempts WHERE id=$1`, id).Scan(&live)
-	return p, a, live && a.State == workflow.Running && status == workflow.Running && p.status == workflow.Running, classify(err)
+	var leaseLive, deadlineLive bool
+	err = tx.QueryRow(ctx, `SELECT lease_expires_at>clock_timestamp(),$2::timestamptz>clock_timestamp() AND $3::timestamptz>clock_timestamp() FROM task_attempts WHERE id=$1`, id, a.DeadlineAt, p.deadline).Scan(&leaseLive, &deadlineLive)
+	if p.status == workflow.Cancelling {
+		a.StopRequested = true
+		a.StopReason = p.reason
+	}
+	if !deadlineLive && a.State == workflow.Running {
+		a.StopRequested = true
+		if a.StopReason == "" {
+			a.StopReason = execution.Deadline
+		}
+	}
+	return p, a, leaseLive && deadlineLive && !a.StopRequested && a.State == workflow.Running && status == workflow.Running && p.status == workflow.Running, classify(err)
 }
 func (s *Store) RenewLease(ctx context.Context, worker string, instance, id uuid.UUID, generation int64) (execution.Attempt, error) {
 	tx, err := s.pool.Begin(ctx)
@@ -289,15 +316,29 @@ func (s *Store) RenewLease(ctx context.Context, worker string, instance, id uuid
 		return execution.Attempt{}, classify(err)
 	}
 	defer rollback(tx)
-	_, a, live, err := withAttempt(ctx, tx, worker, instance, id, generation)
+	p, a, live, err := withAttempt(ctx, tx, worker, instance, id, generation)
 	if err != nil {
 		return a, err
+	}
+	if a.StopRequested && a.State == workflow.Running {
+		// Signal cancellation without extending ownership; DB predicates below
+		// remain the authority (the application clock never grants a lease).
+		var unexpired bool
+		if err = tx.QueryRow(ctx, `SELECT lease_expires_at>clock_timestamp() FROM task_attempts WHERE id=$1`, id).Scan(&unexpired); err != nil {
+			return a, classify(err)
+		}
+		if unexpired {
+			if err = tx.Commit(ctx); err != nil {
+				return a, classify(err)
+			}
+			return a, nil
+		}
 	}
 	if !live {
 		return execution.Attempt{}, execution.ErrStale
 	}
 	// Recheck in the UPDATE too: time may pass after the previous statement.
-	err = tx.QueryRow(ctx, `UPDATE task_attempts SET lease_expires_at=clock_timestamp()+$2*interval '1 millisecond' WHERE id=$1 AND state='RUNNING' AND lease_expires_at>clock_timestamp() RETURNING lease_expires_at`, id, s.limits.Lease.Milliseconds()).Scan(&a.LeaseExpiresAt)
+	err = tx.QueryRow(ctx, `UPDATE task_attempts SET lease_expires_at=LEAST(clock_timestamp()+$2*interval '1 millisecond',$3,$4) WHERE id=$1 AND state='RUNNING' AND lease_expires_at>clock_timestamp() AND cancel_requested_at IS NULL AND $3::timestamptz>clock_timestamp() AND $4::timestamptz>clock_timestamp() RETURNING lease_expires_at`, id, s.limits.Lease.Milliseconds(), a.DeadlineAt, p.deadline).Scan(&a.LeaseExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return execution.Attempt{}, execution.ErrStale
 	}
@@ -310,6 +351,22 @@ func (s *Store) RenewLease(ctx context.Context, worker string, instance, id uuid
 	return a, nil
 }
 func (s *Store) FinishAttempt(ctx context.Context, worker string, instance, id uuid.UUID, generation int64, success bool, result []byte) (execution.Attempt, error) {
+	class := ""
+	if !success {
+		class = execution.Diagnostic
+	}
+	return s.finishAttempt(ctx, worker, instance, id, generation, success, class, result)
+}
+func (s *Store) FailAttempt(ctx context.Context, worker string, instance, id uuid.UUID, generation int64, class string, result []byte) (execution.Attempt, error) {
+	if class == "" {
+		class = execution.Diagnostic
+	}
+	if !execution.FailureClass(class) {
+		return execution.Attempt{}, workflow.ErrInvalid
+	}
+	return s.finishAttempt(ctx, worker, instance, id, generation, false, class, result)
+}
+func (s *Store) finishAttempt(ctx context.Context, worker string, instance, id uuid.UUID, generation int64, success bool, class string, result []byte) (execution.Attempt, error) {
 	body, digest, err := execution.Outcome(result)
 	if err != nil {
 		return execution.Attempt{}, workflow.ErrInvalid
@@ -334,7 +391,7 @@ func (s *Store) FinishAttempt(ctx context.Context, worker string, instance, id u
 				return execution.Attempt{}, classify(err)
 			}
 		}
-		if a.State != state || !equal {
+		if a.State != state || !equal || a.LastError != class {
 			return execution.Attempt{}, execution.ErrOutcome
 		}
 		if err = tx.Commit(ctx); err != nil {
@@ -352,16 +409,27 @@ func (s *Store) FinishAttempt(ctx context.Context, worker string, instance, id u
 	if !bounded {
 		return execution.Attempt{}, workflow.ErrInvalid
 	}
-	tag, err := tx.Exec(ctx, `UPDATE task_attempts SET state=$2,finished_at=clock_timestamp(),outcome_digest=$3,result_metadata=$4 WHERE id=$1 AND state='RUNNING' AND lease_expires_at>clock_timestamp()`, id, state, digest[:], body)
+	tag, err := tx.Exec(ctx, `UPDATE task_attempts SET state=$2,finished_at=clock_timestamp(),outcome_digest=$3,result_metadata=$4,last_error_class=$5 WHERE id=$1 AND state='RUNNING' AND lease_expires_at>clock_timestamp() AND cancel_requested_at IS NULL AND $6::timestamptz>clock_timestamp() AND $7::timestamptz>clock_timestamp()`, id, state, digest[:], body, class, a.DeadlineAt, p.deadline)
 	if err != nil {
 		return execution.Attempt{}, classify(err)
 	}
 	if tag.RowsAffected() != 1 {
 		return execution.Attempt{}, execution.ErrStale
 	}
-	_, err = tx.Exec(ctx, `UPDATE tasks SET status=$2,updated_at=clock_timestamp() WHERE id=$1`, a.TaskID, state)
+	if !success && execution.Retryable(class) {
+		now, e := dbNow(ctx, tx)
+		if e != nil {
+			return a, e
+		}
+		err = s.scheduleFailure(ctx, tx, &p, a.TaskID, class, now)
+	} else {
+		_, err = tx.Exec(ctx, `UPDATE tasks SET status=$2,last_error_class=$3,updated_at=clock_timestamp() WHERE id=$1`, a.TaskID, state, class)
+	}
 	if err != nil {
 		return execution.Attempt{}, classify(err)
+	}
+	if err = obsoleteDispatch(ctx, tx, a.TaskID); err != nil {
+		return a, err
 	}
 	if err = mutation(ctx, tx, p, p.status, []eventWrite{{kind, map[string]any{"task_id": a.TaskID, "attempt_id": id, "generation": generation}}}); err != nil {
 		return execution.Attempt{}, err
@@ -388,64 +456,10 @@ func dispatch(ctx context.Context, tx pgx.Tx, task uuid.UUID, generation int64) 
 	return classify(err)
 }
 
-// Expiry is authoritative, independent of heartbeat hints or broker acks.
-func (s *Store) expireLocked(ctx context.Context, tx pgx.Tx, p *lockedWorkflow) (int, error) {
-	rows, err := tx.Query(ctx, `SELECT t.id,a.id,t.attempt_count FROM tasks t JOIN task_attempts a ON a.id=t.current_attempt_id WHERE t.workflow_id=$1 AND t.status='RUNNING' AND a.state='RUNNING' AND a.lease_expires_at<=clock_timestamp() ORDER BY t.position`, p.id)
-	if err != nil {
-		return 0, classify(err)
-	}
-	type lost struct {
-		task, attempt uuid.UUID
-		count         int
-	}
-	items := []lost{}
-	for rows.Next() {
-		var i lost
-		if err = rows.Scan(&i.task, &i.attempt, &i.count); err != nil {
-			rows.Close()
-			return 0, classify(err)
-		}
-		items = append(items, i)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return 0, classify(err)
-	}
-	for _, i := range items {
-		_, err = tx.Exec(ctx, `UPDATE task_attempts SET state='LOST',finished_at=clock_timestamp() WHERE id=$1`, i.attempt)
-		if err != nil {
-			return 0, classify(err)
-		}
-		state, kind := workflow.Ready, "task.ready"
-		if i.count >= s.limits.MaxAttempts {
-			state, kind = workflow.Failed, "task.failed"
-		}
-		var gen int64
-		err = tx.QueryRow(ctx, `UPDATE tasks SET status=$2,current_attempt_id=NULL,dispatch_generation=dispatch_generation+1,updated_at=clock_timestamp() WHERE id=$1 RETURNING dispatch_generation`, i.task, state).Scan(&gen)
-		if err != nil {
-			return 0, classify(err)
-		}
-		if state == workflow.Ready {
-			if err = dispatch(ctx, tx, i.task, gen); err != nil {
-				return 0, err
-			}
-		}
-		for _, e := range []eventWrite{{"attempt.lost", map[string]any{"task_id": i.task, "attempt_id": i.attempt}}, {kind, map[string]any{"task_id": i.task, "generation": gen, "reason": "lease_expired"}}} {
-			body, _ := json.Marshal(e.payload)
-			p.sequence++
-			_, err = tx.Exec(ctx, `INSERT INTO workflow_events(workflow_id,sequence,event_type,payload) VALUES($1,$2,$3,$4)`, p.id, p.sequence, e.kind, body)
-			if err != nil {
-				return 0, classify(err)
-			}
-		}
-	}
-	return len(items) * 2, nil
-}
-
 type Dispatch struct {
-	ID      uuid.UUID
-	Payload []byte
+	ID        uuid.UUID
+	Payload   []byte
+	MessageID string
 }
 
 func (s *Store) ClaimOutbox(ctx context.Context, relay uuid.UUID, batch int, lease time.Duration) ([]Dispatch, error) {
@@ -458,14 +472,14 @@ func (s *Store) ClaimOutbox(ctx context.Context, relay uuid.UUID, batch int, lea
 	}
 	defer rollback(tx)
 	rows, err := tx.Query(ctx, `WITH picked AS (SELECT id FROM outbox WHERE state='PENDING' AND available_at<=clock_timestamp() AND (relay_lease_expires_at IS NULL OR relay_lease_expires_at<=clock_timestamp()) ORDER BY available_at,id LIMIT $2 FOR UPDATE SKIP LOCKED)
- UPDATE outbox o SET relay_id=$1,relay_lease_expires_at=clock_timestamp()+$3*interval '1 millisecond' FROM picked p WHERE o.id=p.id RETURNING o.id,o.payload`, relay, batch, lease.Milliseconds())
+ UPDATE outbox o SET relay_id=$1,relay_lease_expires_at=clock_timestamp()+$3*interval '1 millisecond' FROM picked p WHERE o.id=p.id RETURNING o.id,o.payload,o.id::text||':'||o.publish_revision::text`, relay, batch, lease.Milliseconds())
 	if err != nil {
 		return nil, classify(err)
 	}
 	result := []Dispatch{}
 	for rows.Next() {
 		var d Dispatch
-		if err = rows.Scan(&d.ID, &d.Payload); err != nil {
+		if err = rows.Scan(&d.ID, &d.Payload, &d.MessageID); err != nil {
 			rows.Close()
 			return nil, classify(err)
 		}

@@ -23,6 +23,9 @@ type Store interface {
 	ClaimTask(context.Context, string, uuid.UUID, uuid.UUID, uuid.UUID, int64) (execution.Attempt, error)
 	RenewLease(context.Context, string, uuid.UUID, uuid.UUID, int64) (execution.Attempt, error)
 	FinishAttempt(context.Context, string, uuid.UUID, uuid.UUID, int64, bool, []byte) (execution.Attempt, error)
+	FailAttempt(context.Context, string, uuid.UUID, uuid.UUID, int64, string, []byte) (execution.Attempt, error)
+	AuthorizeTool(context.Context, string, uuid.UUID, uuid.UUID, int64) (execution.Attempt, error)
+	AcknowledgeStop(context.Context, string, uuid.UUID, uuid.UUID, int64) (execution.Attempt, error)
 }
 type identityKey struct{}
 
@@ -83,6 +86,10 @@ func safe(err error) error {
 		code, msg = codes.ResourceExhausted, "capacity_or_draining"
 	case errors.Is(err, execution.ErrWorker):
 		code, msg = codes.PermissionDenied, "worker_instance_invalid"
+	case errors.Is(err, execution.ErrCapability):
+		code, msg = codes.Unimplemented, "capability_mismatch"
+	case errors.Is(err, execution.ErrInvariant):
+		code, msg = codes.FailedPrecondition, "ownership_consistency_violation"
 	case errors.Is(err, execution.ErrOutcome):
 		code, msg = codes.AlreadyExists, "conflicting_request_or_outcome"
 	}
@@ -96,6 +103,11 @@ func attempt(a execution.Attempt) *workerv1.Attempt {
 	if a.FinishedAt != nil {
 		out.FinishedAt = timestamppb.New(*a.FinishedAt)
 	}
+	out.DeadlineAt = timestamppb.New(a.DeadlineAt)
+	out.StopRequested = a.StopRequested
+	out.StopReason = a.StopReason
+	out.CleanupRequired = a.CleanupRequired
+	out.LastErrorClass = a.LastError
 	return out
 }
 func id(text string) (uuid.UUID, error) {
@@ -181,7 +193,15 @@ func (s *Server) finish(ctx context.Context, r *workerv1.OutcomeRequest, success
 	if err != nil {
 		return nil, safe(err)
 	}
-	a, err := s.store.FinishAttempt(ctx, Identity(ctx), i, aID, r.Generation, success, r.ResultJson)
+	var a execution.Attempt
+	if success {
+		if r.FailureClass != "" {
+			return nil, safe(workflow.ErrInvalid)
+		}
+		a, err = s.store.FinishAttempt(ctx, Identity(ctx), i, aID, r.Generation, true, r.ResultJson)
+	} else {
+		a, err = s.store.FailAttempt(ctx, Identity(ctx), i, aID, r.Generation, r.FailureClass, r.ResultJson)
+	}
 	if err != nil {
 		return nil, safe(err)
 	}
@@ -192,4 +212,30 @@ func (s *Server) CompleteTask(ctx context.Context, r *workerv1.OutcomeRequest) (
 }
 func (s *Server) FailTask(ctx context.Context, r *workerv1.OutcomeRequest) (*workerv1.Attempt, error) {
 	return s.finish(ctx, r, false)
+}
+func (s *Server) ownedAction(ctx context.Context, r *workerv1.AttemptRequest, stop bool) (*workerv1.Attempt, error) {
+	i, err := id(r.InstanceId)
+	if err != nil {
+		return nil, safe(err)
+	}
+	aID, err := id(r.AttemptId)
+	if err != nil {
+		return nil, safe(err)
+	}
+	var a execution.Attempt
+	if stop {
+		a, err = s.store.AcknowledgeStop(ctx, Identity(ctx), i, aID, r.Generation)
+	} else {
+		a, err = s.store.AuthorizeTool(ctx, Identity(ctx), i, aID, r.Generation)
+	}
+	if err != nil {
+		return nil, safe(err)
+	}
+	return attempt(a), nil
+}
+func (s *Server) AuthorizeTool(ctx context.Context, r *workerv1.AttemptRequest) (*workerv1.Attempt, error) {
+	return s.ownedAction(ctx, r, false)
+}
+func (s *Server) AcknowledgeStop(ctx context.Context, r *workerv1.AttemptRequest) (*workerv1.Attempt, error) {
+	return s.ownedAction(ctx, r, true)
 }

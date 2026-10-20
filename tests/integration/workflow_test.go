@@ -369,7 +369,7 @@ func TestSQLConstraints(t *testing.T) {
 		// status values remain rejected by the persisted state constraint.
 		{`UPDATE workflows SET status='INVALID' WHERE id=$1`, "23514", []any{r.ID}},
 		{`UPDATE workflows SET request_hash='\x00' WHERE id=$1`, "23514", []any{r.ID}},
-		{`UPDATE workflows SET request_schema_version=4 WHERE id=$1`, "23514", []any{r.ID}},
+		{`UPDATE workflows SET request_schema_version=5 WHERE id=$1`, "23514", []any{r.ID}},
 		{`UPDATE workflows SET creation_key='invalid space' WHERE id=$1`, "23514", []any{r.ID}},
 		{`INSERT INTO workflows(id,name,status,version,creation_key,request_hash,request_schema_version) SELECT $1,name,status,version,creation_key,request_hash,request_schema_version FROM workflows WHERE id=$2`, "23505", []any{uuid.New(), r.ID}},
 		{`DELETE FROM workflows WHERE id=$1`, "23503", []any{r.ID}},
@@ -454,7 +454,7 @@ func TestDetailsConsistentAcrossCancellation(t *testing.T) {
 	// code is unchanged: its first SELECT finishes before its task SELECT blocks.
 	exec(t, f, `ALTER TABLE tasks RENAME TO task_data`)
 	exec(t, f, `CREATE FUNCTION gated_key(k text) RETURNS text LANGUAGE plpgsql VOLATILE AS $$ BEGIN PERFORM pg_advisory_xact_lock(9101); RETURN k; END $$`)
-	exec(t, f, `CREATE VIEW tasks AS SELECT id,workflow_id,gated_key(task_key) AS task_key,position,kind,status,created_at,updated_at FROM task_data`)
+	exec(t, f, `CREATE VIEW tasks AS SELECT id,workflow_id,gated_key(task_key) AS task_key,position,kind,status,created_at,updated_at,next_attempt_at,last_error_class FROM task_data`)
 	gate, err := f.p1.Acquire(f.ctx)
 	if err != nil {
 		t.Fatal(err)

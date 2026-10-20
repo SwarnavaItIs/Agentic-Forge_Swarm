@@ -388,6 +388,7 @@ type OutcomeRequest struct {
 	AttemptId     string                 `protobuf:"bytes,2,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`
 	Generation    int64                  `protobuf:"varint,3,opt,name=generation,proto3" json:"generation,omitempty"`
 	ResultJson    []byte                 `protobuf:"bytes,4,opt,name=result_json,json=resultJson,proto3" json:"result_json,omitempty"`
+	FailureClass  string                 `protobuf:"bytes,5,opt,name=failure_class,json=failureClass,proto3" json:"failure_class,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -450,22 +451,34 @@ func (x *OutcomeRequest) GetResultJson() []byte {
 	return nil
 }
 
+func (x *OutcomeRequest) GetFailureClass() string {
+	if x != nil {
+		return x.FailureClass
+	}
+	return ""
+}
+
 type Attempt struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	TaskId         string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	AttemptNumber  int32                  `protobuf:"varint,3,opt,name=attempt_number,json=attemptNumber,proto3" json:"attempt_number,omitempty"`
-	Generation     int64                  `protobuf:"varint,4,opt,name=generation,proto3" json:"generation,omitempty"`
-	State          string                 `protobuf:"bytes,5,opt,name=state,proto3" json:"state,omitempty"`
-	Kind           string                 `protobuf:"bytes,6,opt,name=kind,proto3" json:"kind,omitempty"`
-	DelayMs        int32                  `protobuf:"varint,7,opt,name=delay_ms,json=delayMs,proto3" json:"delay_ms,omitempty"`
-	StartedAt      *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	LeaseExpiresAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=lease_expires_at,json=leaseExpiresAt,proto3" json:"lease_expires_at,omitempty"`
-	FinishedAt     *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
-	OutcomeDigest  []byte                 `protobuf:"bytes,11,opt,name=outcome_digest,json=outcomeDigest,proto3" json:"outcome_digest,omitempty"`
-	ResultJson     []byte                 `protobuf:"bytes,12,opt,name=result_json,json=resultJson,proto3" json:"result_json,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	TaskId          string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	AttemptNumber   int32                  `protobuf:"varint,3,opt,name=attempt_number,json=attemptNumber,proto3" json:"attempt_number,omitempty"`
+	Generation      int64                  `protobuf:"varint,4,opt,name=generation,proto3" json:"generation,omitempty"`
+	State           string                 `protobuf:"bytes,5,opt,name=state,proto3" json:"state,omitempty"`
+	Kind            string                 `protobuf:"bytes,6,opt,name=kind,proto3" json:"kind,omitempty"`
+	DelayMs         int32                  `protobuf:"varint,7,opt,name=delay_ms,json=delayMs,proto3" json:"delay_ms,omitempty"`
+	StartedAt       *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	LeaseExpiresAt  *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=lease_expires_at,json=leaseExpiresAt,proto3" json:"lease_expires_at,omitempty"`
+	FinishedAt      *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
+	OutcomeDigest   []byte                 `protobuf:"bytes,11,opt,name=outcome_digest,json=outcomeDigest,proto3" json:"outcome_digest,omitempty"`
+	ResultJson      []byte                 `protobuf:"bytes,12,opt,name=result_json,json=resultJson,proto3" json:"result_json,omitempty"`
+	DeadlineAt      *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=deadline_at,json=deadlineAt,proto3" json:"deadline_at,omitempty"`
+	StopRequested   bool                   `protobuf:"varint,14,opt,name=stop_requested,json=stopRequested,proto3" json:"stop_requested,omitempty"`
+	StopReason      string                 `protobuf:"bytes,15,opt,name=stop_reason,json=stopReason,proto3" json:"stop_reason,omitempty"`
+	CleanupRequired bool                   `protobuf:"varint,16,opt,name=cleanup_required,json=cleanupRequired,proto3" json:"cleanup_required,omitempty"`
+	LastErrorClass  string                 `protobuf:"bytes,17,opt,name=last_error_class,json=lastErrorClass,proto3" json:"last_error_class,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Attempt) Reset() {
@@ -582,6 +595,41 @@ func (x *Attempt) GetResultJson() []byte {
 	return nil
 }
 
+func (x *Attempt) GetDeadlineAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.DeadlineAt
+	}
+	return nil
+}
+
+func (x *Attempt) GetStopRequested() bool {
+	if x != nil {
+		return x.StopRequested
+	}
+	return false
+}
+
+func (x *Attempt) GetStopReason() string {
+	if x != nil {
+		return x.StopReason
+	}
+	return ""
+}
+
+func (x *Attempt) GetCleanupRequired() bool {
+	if x != nil {
+		return x.CleanupRequired
+	}
+	return false
+}
+
+func (x *Attempt) GetLastErrorClass() string {
+	if x != nil {
+		return x.LastErrorClass
+	}
+	return ""
+}
+
 var File_api_worker_v1_worker_proto protoreflect.FileDescriptor
 
 const file_api_worker_v1_worker_proto_rawDesc = "" +
@@ -620,7 +668,7 @@ const file_api_worker_v1_worker_proto_rawDesc = "" +
 	"attempt_id\x18\x02 \x01(\tR\tattemptId\x12\x1e\n" +
 	"\n" +
 	"generation\x18\x03 \x01(\x03R\n" +
-	"generation\"\x91\x01\n" +
+	"generation\"\xb6\x01\n" +
 	"\x0eOutcomeRequest\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12\x1d\n" +
@@ -630,7 +678,8 @@ const file_api_worker_v1_worker_proto_rawDesc = "" +
 	"generation\x18\x03 \x01(\x03R\n" +
 	"generation\x12\x1f\n" +
 	"\vresult_json\x18\x04 \x01(\fR\n" +
-	"resultJson\"\xc4\x03\n" +
+	"resultJson\x12#\n" +
+	"\rfailure_class\x18\x05 \x01(\tR\ffailureClass\"\x9e\x05\n" +
 	"\aAttempt\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12%\n" +
@@ -649,7 +698,14 @@ const file_api_worker_v1_worker_proto_rawDesc = "" +
 	"finishedAt\x12%\n" +
 	"\x0eoutcome_digest\x18\v \x01(\fR\routcomeDigest\x12\x1f\n" +
 	"\vresult_json\x18\f \x01(\fR\n" +
-	"resultJson2\xd6\x04\n" +
+	"resultJson\x12;\n" +
+	"\vdeadline_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"deadlineAt\x12%\n" +
+	"\x0estop_requested\x18\x0e \x01(\bR\rstopRequested\x12\x1f\n" +
+	"\vstop_reason\x18\x0f \x01(\tR\n" +
+	"stopReason\x12)\n" +
+	"\x10cleanup_required\x18\x10 \x01(\bR\x0fcleanupRequired\x12(\n" +
+	"\x10last_error_class\x18\x11 \x01(\tR\x0elastErrorClass2\x84\x06\n" +
 	"\vCoordinator\x12U\n" +
 	"\x0eRegisterWorker\x12%.forgeswarm.worker.v1.RegisterRequest\x1a\x1c.forgeswarm.worker.v1.Worker\x12V\n" +
 	"\x0fHeartbeatWorker\x12%.forgeswarm.worker.v1.InstanceRequest\x1a\x1c.forgeswarm.worker.v1.Worker\x12O\n" +
@@ -658,7 +714,9 @@ const file_api_worker_v1_worker_proto_rawDesc = "" +
 	"\n" +
 	"RenewLease\x12$.forgeswarm.worker.v1.AttemptRequest\x1a\x1d.forgeswarm.worker.v1.Attempt\x12S\n" +
 	"\fCompleteTask\x12$.forgeswarm.worker.v1.OutcomeRequest\x1a\x1d.forgeswarm.worker.v1.Attempt\x12O\n" +
-	"\bFailTask\x12$.forgeswarm.worker.v1.OutcomeRequest\x1a\x1d.forgeswarm.worker.v1.AttemptB#Z!forgeswarm/api/worker/v1;workerv1b\x06proto3"
+	"\bFailTask\x12$.forgeswarm.worker.v1.OutcomeRequest\x1a\x1d.forgeswarm.worker.v1.Attempt\x12T\n" +
+	"\rAuthorizeTool\x12$.forgeswarm.worker.v1.AttemptRequest\x1a\x1d.forgeswarm.worker.v1.Attempt\x12V\n" +
+	"\x0fAcknowledgeStop\x12$.forgeswarm.worker.v1.AttemptRequest\x1a\x1d.forgeswarm.worker.v1.AttemptB#Z!forgeswarm/api/worker/v1;workerv1b\x06proto3"
 
 var (
 	file_api_worker_v1_worker_proto_rawDescOnce sync.Once
@@ -689,25 +747,30 @@ var file_api_worker_v1_worker_proto_depIdxs = []int32{
 	8,  // 1: forgeswarm.worker.v1.Attempt.started_at:type_name -> google.protobuf.Timestamp
 	8,  // 2: forgeswarm.worker.v1.Attempt.lease_expires_at:type_name -> google.protobuf.Timestamp
 	8,  // 3: forgeswarm.worker.v1.Attempt.finished_at:type_name -> google.protobuf.Timestamp
-	0,  // 4: forgeswarm.worker.v1.Coordinator.RegisterWorker:input_type -> forgeswarm.worker.v1.RegisterRequest
-	1,  // 5: forgeswarm.worker.v1.Coordinator.HeartbeatWorker:input_type -> forgeswarm.worker.v1.InstanceRequest
-	2,  // 6: forgeswarm.worker.v1.Coordinator.SetDraining:input_type -> forgeswarm.worker.v1.DrainRequest
-	4,  // 7: forgeswarm.worker.v1.Coordinator.ClaimTask:input_type -> forgeswarm.worker.v1.ClaimRequest
-	5,  // 8: forgeswarm.worker.v1.Coordinator.RenewLease:input_type -> forgeswarm.worker.v1.AttemptRequest
-	6,  // 9: forgeswarm.worker.v1.Coordinator.CompleteTask:input_type -> forgeswarm.worker.v1.OutcomeRequest
-	6,  // 10: forgeswarm.worker.v1.Coordinator.FailTask:input_type -> forgeswarm.worker.v1.OutcomeRequest
-	3,  // 11: forgeswarm.worker.v1.Coordinator.RegisterWorker:output_type -> forgeswarm.worker.v1.Worker
-	3,  // 12: forgeswarm.worker.v1.Coordinator.HeartbeatWorker:output_type -> forgeswarm.worker.v1.Worker
-	3,  // 13: forgeswarm.worker.v1.Coordinator.SetDraining:output_type -> forgeswarm.worker.v1.Worker
-	7,  // 14: forgeswarm.worker.v1.Coordinator.ClaimTask:output_type -> forgeswarm.worker.v1.Attempt
-	7,  // 15: forgeswarm.worker.v1.Coordinator.RenewLease:output_type -> forgeswarm.worker.v1.Attempt
-	7,  // 16: forgeswarm.worker.v1.Coordinator.CompleteTask:output_type -> forgeswarm.worker.v1.Attempt
-	7,  // 17: forgeswarm.worker.v1.Coordinator.FailTask:output_type -> forgeswarm.worker.v1.Attempt
-	11, // [11:18] is the sub-list for method output_type
-	4,  // [4:11] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	8,  // 4: forgeswarm.worker.v1.Attempt.deadline_at:type_name -> google.protobuf.Timestamp
+	0,  // 5: forgeswarm.worker.v1.Coordinator.RegisterWorker:input_type -> forgeswarm.worker.v1.RegisterRequest
+	1,  // 6: forgeswarm.worker.v1.Coordinator.HeartbeatWorker:input_type -> forgeswarm.worker.v1.InstanceRequest
+	2,  // 7: forgeswarm.worker.v1.Coordinator.SetDraining:input_type -> forgeswarm.worker.v1.DrainRequest
+	4,  // 8: forgeswarm.worker.v1.Coordinator.ClaimTask:input_type -> forgeswarm.worker.v1.ClaimRequest
+	5,  // 9: forgeswarm.worker.v1.Coordinator.RenewLease:input_type -> forgeswarm.worker.v1.AttemptRequest
+	6,  // 10: forgeswarm.worker.v1.Coordinator.CompleteTask:input_type -> forgeswarm.worker.v1.OutcomeRequest
+	6,  // 11: forgeswarm.worker.v1.Coordinator.FailTask:input_type -> forgeswarm.worker.v1.OutcomeRequest
+	5,  // 12: forgeswarm.worker.v1.Coordinator.AuthorizeTool:input_type -> forgeswarm.worker.v1.AttemptRequest
+	5,  // 13: forgeswarm.worker.v1.Coordinator.AcknowledgeStop:input_type -> forgeswarm.worker.v1.AttemptRequest
+	3,  // 14: forgeswarm.worker.v1.Coordinator.RegisterWorker:output_type -> forgeswarm.worker.v1.Worker
+	3,  // 15: forgeswarm.worker.v1.Coordinator.HeartbeatWorker:output_type -> forgeswarm.worker.v1.Worker
+	3,  // 16: forgeswarm.worker.v1.Coordinator.SetDraining:output_type -> forgeswarm.worker.v1.Worker
+	7,  // 17: forgeswarm.worker.v1.Coordinator.ClaimTask:output_type -> forgeswarm.worker.v1.Attempt
+	7,  // 18: forgeswarm.worker.v1.Coordinator.RenewLease:output_type -> forgeswarm.worker.v1.Attempt
+	7,  // 19: forgeswarm.worker.v1.Coordinator.CompleteTask:output_type -> forgeswarm.worker.v1.Attempt
+	7,  // 20: forgeswarm.worker.v1.Coordinator.FailTask:output_type -> forgeswarm.worker.v1.Attempt
+	7,  // 21: forgeswarm.worker.v1.Coordinator.AuthorizeTool:output_type -> forgeswarm.worker.v1.Attempt
+	7,  // 22: forgeswarm.worker.v1.Coordinator.AcknowledgeStop:output_type -> forgeswarm.worker.v1.Attempt
+	14, // [14:23] is the sub-list for method output_type
+	5,  // [5:14] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_api_worker_v1_worker_proto_init() }

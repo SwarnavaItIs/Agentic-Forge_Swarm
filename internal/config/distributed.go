@@ -23,6 +23,11 @@ type Distributed struct {
 func DistributedLoad() (Distributed, error) { return DistributedParse(os.LookupEnv) }
 func DistributedParse(env func(string) (string, bool)) (Distributed, error) {
 	c := Distributed{RPCAddr: "127.0.0.1:9090", BrokerURL: "tls://127.0.0.1:4222", Capacity: 2, RelayBatch: 10, RPCTimeout: time.Second, Shutdown: 10 * time.Second, RelayLease: 5 * time.Second, Poll: 100 * time.Millisecond, Limits: execution.DefaultLimits()}
+	_, limits, policyErr := RecoveryParse(env)
+	if policyErr != nil {
+		return c, policyErr
+	}
+	c.Limits = limits
 	for key, dst := range map[string]*string{"RPC_ADDR": &c.RPCAddr, "NATS_URL": &c.BrokerURL, "WORKER_TOKEN": &c.WorkerToken, "RPC_KEYS_FILE": &c.KeysFile, "RPC_TLS_CERT": &c.CertFile, "RPC_TLS_KEY": &c.KeyFile, "RPC_TLS_CA": &c.CAFile, "NATS_TLS_CA": &c.NATSCA, "NATS_TOKEN": &c.NATSToken} {
 		if v, ok := env(key); ok {
 			*dst = v

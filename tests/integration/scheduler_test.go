@@ -634,7 +634,7 @@ func TestGraphSnapshotConsistentAcrossCancellation(t *testing.T) {
 	r := newGraph(t, f, "graph-snapshot", diamond(t))
 	exec(t, f, `ALTER TABLE tasks RENAME TO task_data`)
 	exec(t, f, `CREATE FUNCTION gated_graph_key(k text) RETURNS text LANGUAGE plpgsql VOLATILE AS $$ BEGIN PERFORM pg_advisory_xact_lock(9302); RETURN k; END $$`)
-	exec(t, f, `CREATE VIEW tasks AS SELECT id,workflow_id,gated_graph_key(task_key) AS task_key,position,kind,status,created_at,updated_at FROM task_data`)
+	exec(t, f, `CREATE VIEW tasks AS SELECT id,workflow_id,gated_graph_key(task_key) AS task_key,position,kind,status,created_at,updated_at,next_attempt_at,last_error_class FROM task_data`)
 	gate, err := f.p1.Acquire(f.ctx)
 	if err != nil {
 		t.Fatal(err)

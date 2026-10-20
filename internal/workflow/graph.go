@@ -87,16 +87,18 @@ type Decision struct {
 	Status      string
 }
 
-// TaskTransition defines the future RUNNING boundary without implementing a
-// claim/executor. Only PENDING/READY -> READY/BLOCKED are used by this scheduler.
+// TaskTransition defines diagnostic state transitions. Lease loss retries use
+// persisted RETRY_WAIT; terminal tasks cannot be resurrected by manual redrive.
 func TaskTransition(from, to string) bool {
 	switch from {
+	case RetryWait:
+		return to == Ready || to == Failed || to == Cancelled
 	case Pending:
-		return to == Ready || to == Blocked || to == Cancelled
+		return to == Ready || to == Blocked || to == Cancelled || to == Failed
 	case Ready:
-		return to == Running || to == Blocked || to == Cancelled
+		return to == Running || to == Blocked || to == Cancelled || to == Failed
 	case Running:
-		return to == Succeeded || to == Failed || to == Cancelled
+		return to == Succeeded || to == Failed || to == Cancelled || to == RetryWait
 	default:
 		return false
 	}
@@ -104,7 +106,7 @@ func TaskTransition(from, to string) bool {
 
 func Reconcile(graph Graph) (Decision, error) {
 	decision := Decision{Status: graph.Status, Transitions: make([]Transition, 0)}
-	if graph.Status == Cancelled || graph.Status == Succeeded || graph.Status == Failed {
+	if graph.Status == Cancelled || graph.Status == Succeeded || graph.Status == Failed || graph.Status == Cancelling {
 		return decision, nil
 	}
 	if graph.Status != Pending && graph.Status != Running {
@@ -120,7 +122,7 @@ func Reconcile(graph Graph) (Decision, error) {
 		byID[task.ID] = i
 		definitions[i] = TaskDefinition{Key: task.Key, Kind: task.Kind}
 		switch task.Status {
-		case Pending, Ready, Running, Succeeded, Failed, Blocked, Cancelled:
+		case Pending, Ready, Running, RetryWait, Succeeded, Failed, Blocked, Cancelled:
 		default:
 			return Decision{}, ErrState
 		}
@@ -169,7 +171,7 @@ func Reconcile(graph Graph) (Decision, error) {
 	allSucceeded, unfinished := true, false
 	for _, state := range states {
 		allSucceeded = allSucceeded && state == Succeeded
-		unfinished = unfinished || state == Pending || state == Ready || state == Running
+		unfinished = unfinished || state == Pending || state == Ready || state == Running || state == RetryWait
 	}
 	if allSucceeded {
 		decision.Status = Succeeded

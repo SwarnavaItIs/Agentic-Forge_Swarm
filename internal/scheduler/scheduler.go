@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"forgeswarm/internal/execution"
 	"forgeswarm/internal/postgres"
 )
 
@@ -36,6 +37,10 @@ func Run(ctx context.Context, store Store, settings Settings, logger *slog.Logge
 			return nil
 		}
 		if err != nil {
+			if errors.Is(err, execution.ErrInvariant) {
+				logger.Error("recovery_consistency_violation", "error_class", "ownership_consistency_violation")
+				return err
+			}
 			logger.Error("scheduler_scan_failed", "error_class", "database_or_state_unavailable")
 		} else {
 			// Counts only; no task IDs or workflow IDs become metric labels.

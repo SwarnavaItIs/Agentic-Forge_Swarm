@@ -13,13 +13,15 @@ import (
 )
 
 var (
-	ErrClaimed  = errors.New("already_claimed")
-	ErrObsolete = errors.New("obsolete_notification")
-	ErrCapacity = errors.New("capacity_exceeded")
-	ErrDraining = errors.New("worker_draining")
-	ErrWorker   = errors.New("worker_instance_invalid")
-	ErrStale    = errors.New("stale_or_expired_attempt")
-	ErrOutcome  = errors.New("conflicting_outcome")
+	ErrClaimed    = errors.New("already_claimed")
+	ErrObsolete   = errors.New("obsolete_notification")
+	ErrCapacity   = errors.New("capacity_exceeded")
+	ErrDraining   = errors.New("worker_draining")
+	ErrWorker     = errors.New("worker_instance_invalid")
+	ErrStale      = errors.New("stale_or_expired_attempt")
+	ErrOutcome    = errors.New("conflicting_outcome")
+	ErrCapability = errors.New("capability_mismatch")
+	ErrInvariant  = errors.New("ownership_consistency_violation")
 )
 
 type Limits struct {
@@ -41,15 +43,25 @@ type Worker struct {
 	Draining     bool
 }
 type Attempt struct {
-	ID, TaskID, Instance      uuid.UUID
-	WorkerID                  string
-	Number                    int
-	Generation                int64
-	State, Kind               string
-	DelayMS                   int
-	StartedAt, LeaseExpiresAt time.Time
-	FinishedAt                *time.Time
-	Digest, Result            []byte
+	ID              uuid.UUID       `json:"id"`
+	TaskID          uuid.UUID       `json:"task_id"`
+	Instance        uuid.UUID       `json:"worker_instance_id"`
+	WorkerID        string          `json:"worker_id"`
+	Number          int             `json:"attempt_number"`
+	Generation      int64           `json:"generation"`
+	State           string          `json:"state"`
+	Kind            string          `json:"kind"`
+	DelayMS         int             `json:"delay_ms"`
+	StartedAt       time.Time       `json:"started_at"`
+	LeaseExpiresAt  time.Time       `json:"lease_expires_at"`
+	FinishedAt      *time.Time      `json:"finished_at"`
+	Digest          []byte          `json:"outcome_digest"`
+	Result          json.RawMessage `json:"result_metadata"`
+	DeadlineAt      time.Time       `json:"deadline_at"`
+	StopRequested   bool            `json:"stop_requested"`
+	StopReason      string          `json:"stop_reason"`
+	CleanupRequired bool            `json:"cleanup_required"`
+	LastError       string          `json:"last_error_class"`
 }
 type Notification struct {
 	SchemaVersion int       `json:"schema_version"`

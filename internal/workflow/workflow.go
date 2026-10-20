@@ -12,13 +12,16 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"forgeswarm/internal/execution"
 	"github.com/google/uuid"
 )
 
 const (
 	Pending              = "PENDING"
 	Cancelled            = "CANCELLED"
-	RequestSchemaVersion = 3
+	RequestSchemaVersion = 4
+	Cancelling           = "CANCELLING"
+	RetryWait            = "RETRY_WAIT"
 )
 
 var (
@@ -27,20 +30,24 @@ var (
 	ErrConflict        = errors.New("idempotency conflict")
 	ErrUnavailable     = errors.New("database unavailable")
 	ErrState           = errors.New("unsupported persisted state")
+	ErrSaturated       = errors.New("admission_saturated")
 	keyPattern         = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 	idempotencyPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 )
 
 type TaskDefinition struct {
-	Key       string   `json:"key"`
-	Kind      string   `json:"kind"`
-	DependsOn []string `json:"depends_on,omitempty"`
-	DelayMS   int      `json:"delay_ms,omitempty"`
+	Key         string   `json:"key"`
+	Kind        string   `json:"kind"`
+	DependsOn   []string `json:"depends_on,omitempty"`
+	DelayMS     int      `json:"delay_ms,omitempty"`
+	TimeoutMS   int64    `json:"timeout_ms,omitempty"`
+	MaxAttempts int      `json:"max_attempts,omitempty"`
 }
 
 type CreateInput struct {
-	Name  string           `json:"name"`
-	Tasks []TaskDefinition `json:"tasks"`
+	Name      string           `json:"name"`
+	Tasks     []TaskDefinition `json:"tasks"`
+	TimeoutMS int64            `json:"timeout_ms,omitempty"`
 }
 
 func ValidCreationKey(key string) bool { return idempotencyPattern.MatchString(key) }
@@ -51,11 +58,14 @@ func Normalize(in CreateInput) (CreateInput, error) {
 	}
 	in.Name = strings.TrimSpace(in.Name)
 	n := utf8.RuneCountInString(in.Name)
-	if n < 1 || n > 128 || strings.ContainsRune(in.Name, '\x00') || len(in.Tasks) < 1 || len(in.Tasks) > 100 {
+	if n < 1 || n > 128 || strings.ContainsRune(in.Name, '\x00') || len(in.Tasks) < 1 || len(in.Tasks) > 100 || in.TimeoutMS < 0 || in.TimeoutMS > 86400000 || (in.TimeoutMS > 0 && in.TimeoutMS < 100) {
 		return CreateInput{}, ErrInvalid
 	}
 	seen := make(map[string]struct{}, len(in.Tasks))
 	for _, task := range in.Tasks {
+		if task.MaxAttempts < 0 || task.MaxAttempts > 10 || task.TimeoutMS < 0 || task.TimeoutMS > 86400000 || (task.TimeoutMS > 0 && task.TimeoutMS < 100) {
+			return CreateInput{}, ErrInvalid
+		}
 		if !keyPattern.MatchString(task.Key) || !((task.Kind == "noop" && task.DelayMS == 0) || (task.Kind == "delay" && task.DelayMS >= 1 && task.DelayMS <= 30000)) {
 			return CreateInput{}, ErrInvalid
 		}
@@ -79,12 +89,22 @@ func Normalize(in CreateInput) (CreateInput, error) {
 // Future input fields require an explicit compatibility rule and a new version.
 // Version 1 uses this fixed typed representation; changing it changes old hashes.
 func HashForVersion(in CreateInput, version int) ([32]byte, error) {
-	if version != 1 && version != 2 && version != 3 {
+	if version != 1 && version != 2 && version != 3 && version != 4 {
 		return [32]byte{}, ErrState
 	}
 	normalized, err := Normalize(in)
 	if err != nil {
 		return [32]byte{}, err
+	}
+	if version < 4 {
+		if normalized.TimeoutMS != 0 {
+			return [32]byte{}, ErrConflict
+		}
+		for _, task := range normalized.Tasks {
+			if task.TimeoutMS != 0 || task.MaxAttempts != 0 {
+				return [32]byte{}, ErrConflict
+			}
+		}
 	}
 	if version < 3 {
 		for _, task := range normalized.Tasks {
@@ -126,12 +146,15 @@ func HashForVersion(in CreateInput, version int) ([32]byte, error) {
 }
 
 // Version counts committed logical mutations, independently from event sequence.
-// Terminal workflows are immutable; cancelling them is an idempotent no-op.
+// Terminal outcomes are immutable; cancelling them is an idempotent no-op.
+// Late cleanup attestations may append audit history after logical termination.
 func Cancellation(status string, version int64) (bool, error) {
 	if version < 1 {
 		return false, ErrState
 	}
 	switch status {
+	case Cancelling:
+		return false, nil
 	case Pending:
 		return true, nil
 	case Running:
@@ -165,13 +188,15 @@ type Task struct {
 }
 
 type Details struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	Status    string    `json:"status"`
-	Version   int64     `json:"version"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Tasks     []Task    `json:"tasks"`
+	DeadlineAt     time.Time `json:"deadline_at"`
+	TerminalReason string    `json:"terminal_reason,omitempty"`
+	ID             uuid.UUID `json:"id"`
+	Name           string    `json:"name"`
+	Status         string    `json:"status"`
+	Version        int64     `json:"version"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	Tasks          []Task    `json:"tasks"`
 }
 
 type CancellationResult struct {
@@ -199,4 +224,6 @@ type Service interface {
 	Events(context.Context, uuid.UUID, int64, int) (EventPage, error)
 	Graph(context.Context, uuid.UUID) (Graph, error)
 	Ready(context.Context) error
+	InspectTask(context.Context, uuid.UUID, uuid.UUID) (execution.TaskInspection, error)
+	Attempts(context.Context, uuid.UUID, uuid.UUID, int64, int) (execution.AttemptPage, error)
 }

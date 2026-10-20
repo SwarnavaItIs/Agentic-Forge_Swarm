@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"forgeswarm/internal/workflow"
@@ -86,6 +85,9 @@ type lockedWorkflow struct {
 	id                uuid.UUID
 	status            string
 	version, sequence int64
+	deadline          time.Time
+	reason            string
+	at                time.Time
 }
 type ScanResult struct {
 	Workflows   int
@@ -93,79 +95,68 @@ type ScanResult struct {
 }
 
 func (s *Store) reconcileLocked(ctx context.Context, tx pgx.Tx, parent lockedWorkflow) (int, error) {
-	graph := workflow.Graph{ID: parent.id, Status: parent.status, Version: parent.version}
-	if parent.status != workflow.Pending && parent.status != workflow.Running {
+	if parent.status != workflow.Pending && parent.status != workflow.Running && parent.status != workflow.Cancelling {
 		return 0, nil
 	}
-	expired, err := s.expireLocked(ctx, tx, &parent)
-	if err != nil {
+	initialSequence := parent.sequence
+	if err := s.recoverLocked(ctx, tx, &parent); err != nil {
 		return 0, err
 	}
-	if err := readGraph(ctx, tx, &graph); err != nil {
-		return 0, err
-	}
-	decision, err := workflow.Reconcile(graph)
-	if err != nil {
-		return 0, err
-	}
-	var at time.Time
-	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&at); err != nil {
-		return 0, classify(err)
-	}
-	appendEvent := func(kind string, payload any) error {
-		body, err := json.Marshal(payload)
+	if parent.status == workflow.Pending || parent.status == workflow.Running {
+		graph := workflow.Graph{ID: parent.id, Status: parent.status, Version: parent.version}
+		if err := readGraph(ctx, tx, &graph); err != nil {
+			return 0, err
+		}
+		decision, err := workflow.Reconcile(graph)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		parent.sequence++
-		_, err = tx.Exec(ctx, `INSERT INTO workflow_events(workflow_id,sequence,event_type,payload,occurred_at) VALUES($1,$2,$3,$4,$5)`, parent.id, parent.sequence, kind, body, at)
-		return classify(err)
-	}
-	for _, transition := range decision.Transitions {
-		tag, err := tx.Exec(ctx, `UPDATE tasks SET status=$3,updated_at=$4,dispatch_generation=dispatch_generation+CASE WHEN $3='READY' THEN 1 ELSE 0 END WHERE workflow_id=$1 AND id=$2 AND status=$5`, parent.id, transition.TaskID, transition.To, at, transition.From)
-		if err != nil {
-			return 0, classify(err)
-		}
-		if tag.RowsAffected() != 1 {
-			return 0, workflow.ErrState
-		}
-		if transition.To == workflow.Ready {
-			var gen int64
-			if err = tx.QueryRow(ctx, `SELECT dispatch_generation FROM tasks WHERE id=$1`, transition.TaskID).Scan(&gen); err != nil {
-				return 0, classify(err)
+		for _, transition := range decision.Transitions {
+			if transition.To == workflow.Ready {
+				room, e := s.readyRoom(ctx, tx)
+				if e != nil {
+					return 0, e
+				}
+				if !room {
+					continue
+				}
+				if err = s.makeReady(ctx, tx, &parent, transition.TaskID, true); err != nil {
+					return 0, err
+				}
+			} else {
+				tag, e := tx.Exec(ctx, `UPDATE tasks SET status=$3,updated_at=clock_timestamp() WHERE workflow_id=$1 AND id=$2 AND status=$4`, parent.id, transition.TaskID, transition.To, transition.From)
+				if e != nil {
+					return 0, classify(e)
+				}
+				if tag.RowsAffected() != 1 {
+					return 0, workflow.ErrState
+				}
+				if err = obsoleteDispatch(ctx, tx, transition.TaskID); err != nil {
+					return 0, err
+				}
+				if err = appendHistory(ctx, tx, &parent, "task.blocked", map[string]any{"task_id": transition.TaskID, "from": transition.From, "to": transition.To}); err != nil {
+					return 0, err
+				}
 			}
-			if err = dispatch(ctx, tx, transition.TaskID, gen); err != nil {
+		}
+		if decision.Status != parent.status {
+			parent.status = decision.Status
+			event := "workflow.succeeded"
+			if parent.status == workflow.Failed {
+				event = "workflow.failed"
+			}
+			if err = appendHistory(ctx, tx, &parent, event, map[string]string{"status": parent.status}); err != nil {
 				return 0, err
 			}
 		}
-		kind := "task.ready"
-		if transition.To == workflow.Blocked {
-			kind = "task.blocked"
-		}
-		if err = appendEvent(kind, map[string]any{"task_id": transition.TaskID, "from": transition.From, "to": transition.To}); err != nil {
-			return 0, err
-		}
 	}
-	changed := expired > 0 || len(decision.Transitions) > 0 || decision.Status != parent.status
-	count := expired + len(decision.Transitions)
-	if decision.Status != parent.status {
-		kind := "workflow.succeeded"
-		if decision.Status == workflow.Failed {
-			kind = "workflow.failed"
-		}
-		if err = appendEvent(kind, map[string]string{"status": decision.Status}); err != nil {
-			return 0, err
-		}
-		count++
-	}
-	if changed {
-		_, err = tx.Exec(ctx, `UPDATE workflows SET status=$2,version=version+1,last_event_sequence=$3,updated_at=$4,scheduler_checked_at=$4 WHERE id=$1`, parent.id, decision.Status, parent.sequence, at)
+	var err error
+	if parent.sequence != initialSequence {
+		_, err = tx.Exec(ctx, `UPDATE workflows SET status=$2,terminal_reason=$3,version=version+1,last_event_sequence=$4,updated_at=clock_timestamp(),scheduler_checked_at=clock_timestamp() WHERE id=$1`, parent.id, parent.status, parent.reason, parent.sequence)
 	} else {
-		// Durable scan bookkeeping is separate from user-visible revision/time.
-		// Repeated reconciliation changes neither state nor history.
-		_, err = tx.Exec(ctx, `UPDATE workflows SET scheduler_checked_at=$2 WHERE id=$1`, parent.id, at)
+		_, err = tx.Exec(ctx, `UPDATE workflows SET scheduler_checked_at=clock_timestamp() WHERE id=$1`, parent.id)
 	}
-	return count, classify(err)
+	return int(parent.sequence - initialSequence), classify(err)
 }
 
 func (s *Store) Reconcile(ctx context.Context, id uuid.UUID) (int, error) {
@@ -174,8 +165,11 @@ func (s *Store) Reconcile(ctx context.Context, id uuid.UUID) (int, error) {
 		return 0, classify(err)
 	}
 	defer rollback(tx)
+	if err = admission(ctx, tx); err != nil {
+		return 0, err
+	}
 	var parent lockedWorkflow
-	err = tx.QueryRow(ctx, `SELECT id,status,version,last_event_sequence FROM workflows WHERE id=$1 FOR UPDATE`, id).Scan(&parent.id, &parent.status, &parent.version, &parent.sequence)
+	err = tx.QueryRow(ctx, `SELECT id,status,version,last_event_sequence,deadline_at,terminal_reason FROM workflows WHERE id=$1 FOR UPDATE`, id).Scan(&parent.id, &parent.status, &parent.version, &parent.sequence, &parent.deadline, &parent.reason)
 	if err != nil {
 		return 0, classify(err)
 	}
@@ -205,14 +199,20 @@ func (s *Store) ReconcileBatch(ctx context.Context, batch int) (ScanResult, erro
 		return ScanResult{}, classify(err)
 	}
 	defer rollback(tx)
-	rows, err := tx.Query(ctx, `SELECT id,status,version,last_event_sequence FROM workflows WHERE status IN ('PENDING','RUNNING') ORDER BY scheduler_checked_at NULLS FIRST,created_at,id LIMIT $1 FOR UPDATE SKIP LOCKED`, batch)
+	if err = admission(ctx, tx); err != nil {
+		return ScanResult{}, err
+	}
+	if err = s.checkCapacity(ctx, tx); err != nil {
+		return ScanResult{}, err
+	}
+	rows, err := tx.Query(ctx, `SELECT id,status,version,last_event_sequence,deadline_at,terminal_reason FROM workflows WHERE status IN ('PENDING','RUNNING','CANCELLING') ORDER BY scheduler_checked_at NULLS FIRST,created_at,id LIMIT $1 FOR UPDATE SKIP LOCKED`, batch)
 	if err != nil {
 		return ScanResult{}, classify(err)
 	}
 	parents := make([]lockedWorkflow, 0, batch)
 	for rows.Next() {
 		var parent lockedWorkflow
-		if err = rows.Scan(&parent.id, &parent.status, &parent.version, &parent.sequence); err != nil {
+		if err = rows.Scan(&parent.id, &parent.status, &parent.version, &parent.sequence, &parent.deadline, &parent.reason); err != nil {
 			rows.Close()
 			return ScanResult{}, classify(err)
 		}

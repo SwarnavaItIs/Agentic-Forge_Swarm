@@ -24,7 +24,11 @@ func Step(ctx context.Context, s Store, p Publisher, id uuid.UUID, batch int, le
 	sent := 0
 	for _, item := range items {
 		// ClaimOutbox already committed: no DB lock remains during publish/ack.
-		if err = p.Publish(ctx, item.ID.String(), item.Payload); err != nil {
+		messageID := item.MessageID
+		if messageID == "" {
+			messageID = item.ID.String()
+		}
+		if err = p.Publish(ctx, messageID, item.Payload); err != nil {
 			return sent, err
 		}
 		if err = s.MarkSent(ctx, id, item.ID); err != nil {

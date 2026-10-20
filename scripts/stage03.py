@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.request
 import uuid
 import dev
@@ -109,7 +110,7 @@ def verify():
     except (RuntimeError,AssertionError,OSError,ValueError) as err:progress("implemented_unverified",str(err));raise
     progress("verified_local");print("stage 03 verified_local; see progress and stage-03 evidence",flush=True)
 
-def smoke():
+def smoke(recovery=False):
     started=dev.timestamp()
     phases=[]
     with dev.database() as (env,db,db_ready):
@@ -125,6 +126,7 @@ def smoke():
                  "WORKER_CAPACITY":"1","WORKER_MAX_CAPACITY":"1","TOTAL_CAPACITY":"2","ATTEMPT_LEASE":"3s","RPC_TIMEOUT":"1s",
                  "RELAY_LEASE":"1s","DISPATCH_POLL":"100ms","SHUTDOWN_TIMEOUT":"3s","SCHEDULER_INTERVAL":"100ms",
                  "SCHEDULER_SCAN_TIMEOUT":"1s","REQUEST_TIMEOUT":"1s","CONNECT_TIMEOUT":"300ms","READY_TIMEOUT":"300ms"}
+        if recovery:env.update({"RETRY_BACKOFF_BASE":"3s","RETRY_BACKOFF_CAP":"3s"})
         keys={"worker_a":uuid.uuid4().hex,"worker_b":uuid.uuid4().hex}
         (private/"keys.json").write_text(json.dumps(keys))
         (private/"nats.conf").write_text('port: 4222\nhttp_port: 8222\nauthorization { token: $NATS_TOKEN }\n'
@@ -140,7 +142,7 @@ def smoke():
             return out
         def start(name):
             nonlocal base
-            role="worker" if name.startswith("worker_") else name
+            role="worker" if name.startswith("worker_") else "scheduler" if name.startswith("scheduler") else name
             container="forgeswarm-"+name+"-"+uuid.uuid4().hex
             settings=env.copy()
             if role=="coordinator":settings.update({"RPC_ADDR":"0.0.0.0:9090","RPC_KEYS_FILE":"/tls/keys.json","RPC_TLS_CERT":"/tls/cert.pem","RPC_TLS_KEY":"/tls/key.pem"})
@@ -154,6 +156,8 @@ def smoke():
                         "ATTEMPT_LEASE","RPC_TIMEOUT","RELAY_LEASE","DISPATCH_POLL","SHUTDOWN_TIMEOUT","SCHEDULER_INTERVAL","SCHEDULER_SCAN_TIMEOUT",
                         "REQUEST_TIMEOUT","CONNECT_TIMEOUT","READY_TIMEOUT","RPC_KEYS_FILE","RPC_TLS_CERT","RPC_TLS_KEY","HTTP_ADDR","WORKER_TOKEN"]:
                 if key in settings:args += ["-e",key]
+            if recovery:
+                for key in ["RETRY_BACKOFF_BASE","RETRY_BACKOFF_CAP"]:args += ["-e",key]
             dev.run([*args,dev.GO_IMAGE,"/app/"+role+"-linux"],env=settings,label="process-start-"+name)
             processes[name]=container
             if role=="api":
@@ -216,6 +220,7 @@ def smoke():
                 except OSError:return False
             dev.poll(broker_ready,"authenticated TLS JetStream")
             for name in ["api","coordinator","scheduler","relay"]:start(name)
+            if recovery:start("scheduler_2")
             diamond,body=create("distributed-diamond",[{"key":"a","kind":"noop"},{"key":"b","kind":"delay","delay_ms":1500,"depends_on":["a"]},
                     {"key":"c","kind":"delay","delay_ms":1500,"depends_on":["a"]},{"key":"d","kind":"noop","depends_on":["b","c"]}])
             for name in keys:start(name)
@@ -256,10 +261,14 @@ def smoke():
 
             cancelled,_=create("active-cancel",[{"key":"a","kind":"delay","delay_ms":10000}]);running_owner(cancelled)
             assert dev.http(base,"/v1/workflows/"+cancelled["id"]+"/cancel","POST",b"")[0]==200
-            assert graph(cancelled)["status"]=="CANCELLED" and count(cancelled,"state='CANCELLED' AND result_metadata IS NULL")==1
+            # Stage 04 accepts cancellation first, then waits for stop acknowledgment
+            # or lease fencing. Completed diagnostic results remain immutable.
+            dev.poll(lambda:graph(cancelled)["status"]=="CANCELLED","cancellation stop handshake")
+            assert count(cancelled,"state='CANCELLED' AND result_metadata IS NULL")==1
             record("active diagnostics cancelled",cancelled)
 
             for killed in [False,True]:
+                recovery_started=time.monotonic()
                 recovered,_=create("killed-worker" if killed else "stale-resume",[{"key":"a","kind":"delay","delay_ms":6000}])
                 owner=running_owner(recovered)
                 if killed:stop(owner,killed=True)
@@ -271,18 +280,41 @@ def smoke():
                     dev.run(["docker","kill","--signal","CONT",processes[owner]],label="process-stale-worker-resume")
                     probe,_=create("resumed-worker-probe",[{"key":"a","kind":"noop"}]);finish(probe)
                     assert count(recovered,"state='SUCCEEDED'")==1
-                record("killed worker lease failover" if killed else "paused worker lease failover and stale resume",recovered)
+                record("killed worker lease failover" if killed else "paused worker lease failover and stale resume",recovered,{"observed_seconds":round(time.monotonic()-recovery_started,3)})
+
+            if recovery:
+                retried,_=create("retry-wait-process-restart",[{"key":"a","kind":"delay","delay_ms":1000}])
+                owner=running_owner(retried);stop(owner,killed=True);rid=str(uuid.UUID(retried["id"]))
+                dev.poll(lambda:sql(f"SELECT count(*) FROM tasks WHERE workflow_id='{rid}' AND status='RETRY_WAIT'")=="1","persisted RETRY_WAIT after worker kill")
+                for name in ["scheduler","scheduler_2"]:stop(name,killed=True)
+                budget_query=f"SELECT next_attempt_at::text||'|'||deadline_at::text||'|'||dispatch_generation::text FROM tasks WHERE workflow_id='{rid}'"
+                budget=sql(budget_query)
+                for name in ["coordinator","api"]:stop(name)
+                for name in ["api","coordinator"]:start(name)
+                assert sql(budget_query)==budget,"control-plane restart reset durable retry/deadline/generation"
+                dev.poll(lambda:sql(f"SELECT count(*) FROM tasks WHERE workflow_id='{rid}' AND next_attempt_at<=clock_timestamp()")=="1","retry due with both schedulers stopped")
+                assert graph(retried)["nodes"][0]["status"]=="RETRY_WAIT"
+                for name in ["scheduler","scheduler_2",owner]:start(name)
+                finish(retried)
+                assert count(retried)==2 and count(retried,"state='SUCCEEDED'")==1
+                record("scheduler SIGKILL and control-plane restart during RETRY_WAIT",retried,{"due_deadline_generation_preserved":True})
+                timeout_started=time.monotonic()
+                timed,_=create("diagnostic-deadline",[{"key":"a","kind":"delay","delay_ms":10000,"timeout_ms":1500}]);running_owner(timed)
+                dev.poll(lambda:graph(timed)["status"]=="FAILED","bounded diagnostic deadline")
+                assert count(timed,"state='SUCCEEDED'")==0 and count(timed)==1
+                record("diagnostic deadline stops/fences execution",timed,{"observed_seconds":round(time.monotonic()-timeout_started,3)})
 
             completed=graph(diamond)
-            for name in [*keys,"relay","scheduler","coordinator","api"]:stop(name)
-            for name in ["api","coordinator","scheduler","relay",*keys]:start(name)
+            for name in [*keys,"relay","scheduler",*(["scheduler_2"] if recovery else []),"coordinator","api"]:stop(name)
+            for name in ["api","coordinator","scheduler",*(["scheduler_2"] if recovery else []),"relay",*keys]:start(name)
             dev.poll(lambda:sql("SELECT count(*) FROM workers WHERE NOT draining AND heartbeat_at>clock_timestamp()-interval '2 seconds'")=="2","two restarted registered workers")
             assert graph(diamond)==completed and count(diamond)==4
             assert dev.http(base,"/v1/workflows","POST",body,"distributed-diamond")[1]==diamond
             probe,_=create("all-processes-restarted",[{"key":"a","kind":"noop"}]);finish(probe)
             record("all role processes restarted, terminal state preserved",diamond)
-            for name in [*keys,"relay","scheduler","coordinator","api"]:stop(name)
+            for name in [*keys,"relay","scheduler",*(["scheduler_2"] if recovery else []),"coordinator","api"]:stop(name)
             result={"status":"passed","started_at":started,"finished_at":dev.timestamp(),"fixture":"owned disposable processes; real diagnostic outcomes only","phases":phases}
+            result["environment"]={"processes":"Linux amd64 containers on local Docker","workers":2,"slots_per_worker":1,"total_capacity":2,"lease_seconds":3,"scheduler_interval_ms":100,"backoff_base_seconds":3 if recovery else 0.25,"measurement_scope":"individual smoke observations; no throughput inference"}
             EVIDENCE.mkdir(parents=True,exist_ok=True)
             (EVIDENCE/"process-results.json").write_text(json.dumps(result,indent=2)+"\n")
             if dev.RECORD:dev.COMMANDS.append({"command":"Stage03 real TLS diagnostic processes / overlap / outages / kill / resume / restart assertions","started_at":started,"finished_at":dev.timestamp(),"exit":0,"required":True,"evidence_path":(EVIDENCE/"process-results.json").relative_to(dev.ROOT).as_posix()})

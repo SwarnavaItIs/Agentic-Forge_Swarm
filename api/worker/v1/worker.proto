@@ -12,6 +12,8 @@ service Coordinator {
   rpc RenewLease(AttemptRequest) returns (Attempt);
   rpc CompleteTask(OutcomeRequest) returns (Attempt);
   rpc FailTask(OutcomeRequest) returns (Attempt);
+  rpc AuthorizeTool(AttemptRequest) returns (Attempt);
+  rpc AcknowledgeStop(AttemptRequest) returns (Attempt);
 }
 message RegisterRequest { string instance_id = 1; repeated string capabilities = 2; int32 capacity = 3; }
 message InstanceRequest { string instance_id = 1; }
@@ -19,10 +21,12 @@ message DrainRequest { string instance_id = 1; bool draining = 2; }
 message Worker { string worker_id = 1; string instance_id = 2; int32 capacity = 3; bool draining = 4; google.protobuf.Timestamp heartbeat_at = 5; }
 message ClaimRequest { string instance_id = 1; string task_id = 2; int64 dispatch_generation = 3; string request_id = 4; }
 message AttemptRequest { string instance_id = 1; string attempt_id = 2; int64 generation = 3; }
-message OutcomeRequest { string instance_id = 1; string attempt_id = 2; int64 generation = 3; bytes result_json = 4; }
+message OutcomeRequest { string instance_id = 1; string attempt_id = 2; int64 generation = 3; bytes result_json = 4; string failure_class = 5; }
 message Attempt {
   string id = 1; string task_id = 2; int32 attempt_number = 3; int64 generation = 4;
   string state = 5; string kind = 6; int32 delay_ms = 7;
   google.protobuf.Timestamp started_at = 8; google.protobuf.Timestamp lease_expires_at = 9;
   google.protobuf.Timestamp finished_at = 10; bytes outcome_digest = 11; bytes result_json = 12;
+  google.protobuf.Timestamp deadline_at = 13; bool stop_requested = 14;
+  string stop_reason = 15; bool cleanup_required = 16; string last_error_class = 17;
 }
