@@ -633,7 +633,9 @@ func TestGraphSnapshotConsistentAcrossCancellation(t *testing.T) {
 	f := setup(t)
 	r := newGraph(t, f, "graph-snapshot", diamond(t))
 	exec(t, f, `ALTER TABLE tasks RENAME TO task_data`)
-	exec(t, f, `CREATE FUNCTION gated_graph_key(k text) RETURNS text LANGUAGE plpgsql VOLATILE AS $$ BEGIN PERFORM pg_advisory_xact_lock(9302); RETURN k; END $$`)
+	// Gate the reader connection explicitly. A writer join may evaluate this
+	// volatile view projection under a different valid PostgreSQL query plan.
+	exec(t, f, `CREATE FUNCTION gated_graph_key(k text) RETURNS text LANGUAGE plpgsql VOLATILE AS $$ BEGIN IF current_setting('application_name') LIKE '%_two' THEN PERFORM pg_advisory_xact_lock(9302); END IF; RETURN k; END $$`)
 	exec(t, f, `CREATE VIEW tasks AS SELECT id,workflow_id,gated_graph_key(task_key) AS task_key,position,kind,status,created_at,updated_at,next_attempt_at,last_error_class FROM task_data`)
 	gate, err := f.p1.Acquire(f.ctx)
 	if err != nil {

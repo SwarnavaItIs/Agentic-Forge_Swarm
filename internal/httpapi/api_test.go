@@ -120,6 +120,10 @@ func TestCreationBoundary(t *testing.T) {
 		{"duplicate_fields", `{"name":"x","name":"y","tasks":[{"key":"a","kind":"noop"}]}`, "application/json", []string{"one"}, 400},
 		{"null_task", `{"name":"x","tasks":[null]}`, "application/json", []string{"one"}, 400},
 		{"wrong_case", `{"Name":"x","tasks":[{"key":"a","kind":"noop"}]}`, "application/json", []string{"one"}, 400},
+		{"sandbox_valid", `{"name":"x","tasks":[{"key":"a","kind":"sandbox_go","sandbox":{"schema_version":1,"fixture_id":"` + strings.Repeat("a", 64) + `","command":"test"}}]}`, "application/json", []string{"one"}, 201},
+		{"sandbox_path_denied", `{"name":"x","tasks":[{"key":"a","kind":"sandbox_go","sandbox":{"schema_version":1,"fixture_id":"C:/repo","command":"test"}}]}`, "application/json", []string{"one"}, 400},
+		{"sandbox_duplicate", `{"name":"x","tasks":[{"key":"a","kind":"sandbox_go","sandbox":{"schema_version":1,"fixture_id":"` + strings.Repeat("a", 64) + `","command":"test","command":"build"}}]}`, "application/json", []string{"one"}, 400},
+		{"sandbox_image_denied", `{"name":"x","tasks":[{"key":"a","kind":"sandbox_go","sandbox":{"schema_version":1,"fixture_id":"` + strings.Repeat("a", 64) + `","command":"test","image":"untrusted"}}]}`, "application/json", []string{"one"}, 400},
 		{"oversized", validBody + strings.Repeat(" ", MaxBodyBytes), "application/json", []string{"one"}, 413},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -117,7 +117,7 @@ def build():
     run(["go", "build", "-o", BIN.parent / ("migrate.exe" if os.name == "nt" else "migrate"), "./cmd/migrate"], label="build-migrate")
     if (ROOT / "cmd/scheduler").exists():
         run(["go", "build", "-o", BIN.parent / ("scheduler.exe" if os.name == "nt" else "scheduler"), "./cmd/scheduler"], label="build-scheduler")
-    for name in ["coordinator","relay","worker"]:
+    for name in ["coordinator","relay","worker","sandbox-fixture","sandbox-prepare"]:
         if (ROOT / "cmd" / name).exists():run(["go","build","-o",BIN.parent / (name+".exe" if os.name=="nt" else name),"./cmd/"+name],label="build-"+name)
 
 
@@ -329,6 +329,10 @@ def main():
     os.chdir(ROOT)
     (ROOT / ".cache/go-tmp").mkdir(parents=True, exist_ok=True)
     command = sys.argv[1] if len(sys.argv) == 2 else "help"
+    if command in {"verify-stage-05","sandbox-prepare","sandbox-fixture","sandbox-demo","sandbox-test"}:
+        import stage05
+        stage05.command(command)
+        return
     if command=="verify-stage-04":
         import stage04
         stage04.verify()
@@ -346,7 +350,17 @@ def main():
         stage02.verify()
         return
     if command == "help":
-        print("ForgeSwarm Stages 01/02/03: make <command> or python scripts/dev.py <command>\n"
+        print("Stage 05: verify-stage-05; sandbox-prepare; sandbox-fixture / sandbox-demo; sandbox-test.\n"
+              "Vetted small dependency-free Go 1.26.3 fixtures, Linux cgroup v2 Docker; no host repository commands.\n"
+              "sandbox-fixture registers the bundled demo; custom inputs: go run ./cmd/sandbox-fixture -repository PATH -revision FULL_COMMIT.\n"
+              "Set SANDBOX_ENABLED=true, stable SANDBOX_INSTALLATION_ID, registry/helper paths before run-worker.\n"
+              "Migrate 00005 and upgrade all services together; v5 adds sandbox_go plus sandbox:{schema_version:1,fixture_id:ID,command:build|test}.\n"
+              "Default per command: 1 CPU, 512 MiB memory/no swap, 64 PIDs, 60s, 256 MiB workspace + 64 MiB tmp + 1 MiB shm.\n"
+              "Network off, nonroot, read-only image/harness, default seccomp, capabilities dropped; actual rootless/rootful mode recorded.\n"
+              "Accepted artifacts: local PostgreSQL byte store, 8 KiB maximum each, hashes/truncation, ID-only JSON/base64 retrieval.\n"
+              "GET /v1/workflows/{id}/artifacts/{artifact_id}; execution metadata appears in task attempt inspection.\n"
+              "Docker shares its kernel; no complete hostile-code isolation. Runtime failure retains cleanup uncertainty and denies publication.\n"
+              "ForgeSwarm Stages 01/02/03: make <command> or python scripts/dev.py <command>\n"
               "Stage 04: verify-stage-04; RETRY_WAIT persists capped jittered retry due times.\n"
               "Migrate 00004 and upgrade API/coordinator/schedulers/workers together; old binaries cannot enforce new policies.\n"
               "Defaults: workflow deadline 10m, task deadline 2m from creation, 3 attempts; retries never extend them.\n"

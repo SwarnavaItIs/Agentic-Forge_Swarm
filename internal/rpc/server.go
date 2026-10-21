@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"forgeswarm/api/worker/v1"
 	"forgeswarm/internal/execution"
+	"forgeswarm/internal/sandbox"
 	"forgeswarm/internal/workflow"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -108,6 +110,13 @@ func attempt(a execution.Attempt) *workerv1.Attempt {
 	out.StopReason = a.StopReason
 	out.CleanupRequired = a.CleanupRequired
 	out.LastErrorClass = a.LastError
+	out.ExecutionMetadataJson = a.SandboxExecution
+	out.WorkflowId = a.WorkflowID.String()
+	out.WorkerId = a.WorkerID
+	out.InstanceId = a.Instance.String()
+	if a.Sandbox != nil {
+		out.SandboxInputJson, _ = json.Marshal(a.Sandbox)
+	}
 	return out
 }
 func id(text string) (uuid.UUID, error) {
@@ -238,4 +247,79 @@ func (s *Server) AuthorizeTool(ctx context.Context, r *workerv1.AttemptRequest) 
 }
 func (s *Server) AcknowledgeStop(ctx context.Context, r *workerv1.AttemptRequest) (*workerv1.Attempt, error) {
 	return s.ownedAction(ctx, r, true)
+}
+
+type sandboxStore interface {
+	AuthorizeSandbox(context.Context, string, uuid.UUID, uuid.UUID, uuid.UUID, int64) (execution.Attempt, error)
+	FinishSandbox(context.Context, string, uuid.UUID, uuid.UUID, uuid.UUID, int64, sandbox.Result) (execution.Attempt, error)
+	SandboxCleanup(context.Context, string, uuid.UUID) ([]execution.Attempt, error)
+}
+
+func sandboxIDs(r *workerv1.SandboxRequest) (uuid.UUID, uuid.UUID, uuid.UUID, error) {
+	if r == nil || r.Attempt == nil {
+		return uuid.Nil, uuid.Nil, uuid.Nil, workflow.ErrInvalid
+	}
+	i, e := id(r.Attempt.InstanceId)
+	if e != nil {
+		return i, uuid.Nil, uuid.Nil, e
+	}
+	a, e := id(r.Attempt.AttemptId)
+	if e != nil {
+		return i, a, uuid.Nil, e
+	}
+	key, e := id(r.RequestId)
+	return i, a, key, e
+}
+func (s *Server) AuthorizeSandbox(ctx context.Context, r *workerv1.SandboxRequest) (*workerv1.Attempt, error) {
+	i, a, key, e := sandboxIDs(r)
+	if e != nil {
+		return nil, safe(e)
+	}
+	store, ok := s.store.(sandboxStore)
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "sandbox_unavailable")
+	}
+	out, e := store.AuthorizeSandbox(ctx, Identity(ctx), i, a, key, r.Attempt.Generation)
+	if e != nil {
+		return nil, safe(e)
+	}
+	return attempt(out), nil
+}
+func (s *Server) CompleteSandbox(ctx context.Context, r *workerv1.SandboxOutcome) (*workerv1.Attempt, error) {
+	i, a, key, e := sandboxIDs(r.Request)
+	if e != nil {
+		return nil, safe(e)
+	}
+	var result sandbox.Result
+	if sandbox.Decode(r.CommandResultJson, &result, sandbox.MaxWire) != nil {
+		return nil, safe(workflow.ErrInvalid)
+	}
+	store, ok := s.store.(sandboxStore)
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "sandbox_unavailable")
+	}
+	out, e := store.FinishSandbox(ctx, Identity(ctx), i, a, key, r.Request.Attempt.Generation, result)
+	if e != nil {
+		return nil, safe(e)
+	}
+	return attempt(out), nil
+}
+func (s *Server) SandboxCleanup(ctx context.Context, r *workerv1.InstanceRequest) (*workerv1.CleanupPage, error) {
+	i, e := id(r.InstanceId)
+	if e != nil {
+		return nil, safe(e)
+	}
+	store, ok := s.store.(sandboxStore)
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "sandbox_unavailable")
+	}
+	items, e := store.SandboxCleanup(ctx, Identity(ctx), i)
+	if e != nil {
+		return nil, safe(e)
+	}
+	page := &workerv1.CleanupPage{}
+	for _, a := range items {
+		page.Attempts = append(page.Attempts, attempt(a))
+	}
+	return page, nil
 }

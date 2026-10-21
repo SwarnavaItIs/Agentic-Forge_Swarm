@@ -14,6 +14,9 @@ service Coordinator {
   rpc FailTask(OutcomeRequest) returns (Attempt);
   rpc AuthorizeTool(AttemptRequest) returns (Attempt);
   rpc AcknowledgeStop(AttemptRequest) returns (Attempt);
+  rpc AuthorizeSandbox(SandboxRequest) returns (Attempt);
+  rpc CompleteSandbox(SandboxOutcome) returns (Attempt);
+  rpc SandboxCleanup(InstanceRequest) returns (CleanupPage);
 }
 message RegisterRequest { string instance_id = 1; repeated string capabilities = 2; int32 capacity = 3; }
 message InstanceRequest { string instance_id = 1; }
@@ -22,6 +25,9 @@ message Worker { string worker_id = 1; string instance_id = 2; int32 capacity = 
 message ClaimRequest { string instance_id = 1; string task_id = 2; int64 dispatch_generation = 3; string request_id = 4; }
 message AttemptRequest { string instance_id = 1; string attempt_id = 2; int64 generation = 3; }
 message OutcomeRequest { string instance_id = 1; string attempt_id = 2; int64 generation = 3; bytes result_json = 4; string failure_class = 5; }
+message SandboxRequest { AttemptRequest attempt = 1; string request_id = 2; }
+message SandboxOutcome { SandboxRequest request = 1; bytes command_result_json = 2; }
+message CleanupPage { repeated Attempt attempts = 1; }
 message Attempt {
   string id = 1; string task_id = 2; int32 attempt_number = 3; int64 generation = 4;
   string state = 5; string kind = 6; int32 delay_ms = 7;
@@ -29,4 +35,7 @@ message Attempt {
   google.protobuf.Timestamp finished_at = 10; bytes outcome_digest = 11; bytes result_json = 12;
   google.protobuf.Timestamp deadline_at = 13; bool stop_requested = 14;
   string stop_reason = 15; bool cleanup_required = 16; string last_error_class = 17;
+  string workflow_id = 18; bytes sandbox_input_json = 19;
+  string worker_id = 20; string instance_id = 21;
+  bytes execution_metadata_json = 22;
 }

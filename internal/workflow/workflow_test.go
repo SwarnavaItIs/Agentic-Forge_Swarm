@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"encoding/hex"
+	"forgeswarm/internal/sandbox"
 	"strings"
 	"testing"
 )
@@ -33,7 +34,7 @@ func TestNormalizationV1AndOrder(t *testing.T) {
 	if hex.EncodeToString(one[:]) != want {
 		t.Fatalf("normalization v1 hash: %x", one)
 	}
-	if _, err := HashForVersion(a, 5); err != ErrState {
+	if _, err := HashForVersion(a, 6); err != ErrState {
 		t.Fatalf("unknown version: %v", err)
 	}
 }
@@ -81,6 +82,29 @@ func TestV3GoldenAndV4PolicyCompatibility(t *testing.T) {
 		if _, err = HashForVersion(updated, 4); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestV4GoldenAndV5SandboxCompatibility(t *testing.T) {
+	in := CreateInput{Name: "v4 golden", TimeoutMS: 5000, Tasks: []TaskDefinition{{Key: "a", Kind: "delay", DelayMS: 123, TimeoutMS: 1000, MaxAttempts: 2}}}
+	hash, err := HashForVersion(in, 4)
+	if err != nil || hex.EncodeToString(hash[:]) != "6dfd8d9fd6d47616dfb08bec0dc6563b249ac499f04518dc8bd75b64f6334592" {
+		t.Fatal("v4 persisted encoding changed", err)
+	}
+	in.Tasks[0].Kind = "sandbox_go"
+	in.Tasks[0].DelayMS = 0
+	in.Tasks[0].Sandbox = &sandbox.Input{SchemaVersion: 1, FixtureID: strings.Repeat("a", 64), Command: "test"}
+	if _, err = HashForVersion(in, 4); err != ErrConflict {
+		t.Fatal("sandbox projected onto v4", err)
+	}
+	a, err := HashForVersion(in, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Tasks[0].Sandbox.Command = "build"
+	b, err := HashForVersion(in, 5)
+	if err != nil || a == b {
+		t.Fatal("command ignored in v5", err)
 	}
 }
 

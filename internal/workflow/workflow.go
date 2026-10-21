@@ -13,13 +13,14 @@ import (
 	"unicode/utf8"
 
 	"forgeswarm/internal/execution"
+	"forgeswarm/internal/sandbox"
 	"github.com/google/uuid"
 )
 
 const (
 	Pending              = "PENDING"
 	Cancelled            = "CANCELLED"
-	RequestSchemaVersion = 4
+	RequestSchemaVersion = 5
 	Cancelling           = "CANCELLING"
 	RetryWait            = "RETRY_WAIT"
 )
@@ -36,12 +37,13 @@ var (
 )
 
 type TaskDefinition struct {
-	Key         string   `json:"key"`
-	Kind        string   `json:"kind"`
-	DependsOn   []string `json:"depends_on,omitempty"`
-	DelayMS     int      `json:"delay_ms,omitempty"`
-	TimeoutMS   int64    `json:"timeout_ms,omitempty"`
-	MaxAttempts int      `json:"max_attempts,omitempty"`
+	Key         string         `json:"key"`
+	Kind        string         `json:"kind"`
+	DependsOn   []string       `json:"depends_on,omitempty"`
+	DelayMS     int            `json:"delay_ms,omitempty"`
+	TimeoutMS   int64          `json:"timeout_ms,omitempty"`
+	MaxAttempts int            `json:"max_attempts,omitempty"`
+	Sandbox     *sandbox.Input `json:"sandbox,omitempty"`
 }
 
 type CreateInput struct {
@@ -66,7 +68,7 @@ func Normalize(in CreateInput) (CreateInput, error) {
 		if task.MaxAttempts < 0 || task.MaxAttempts > 10 || task.TimeoutMS < 0 || task.TimeoutMS > 86400000 || (task.TimeoutMS > 0 && task.TimeoutMS < 100) {
 			return CreateInput{}, ErrInvalid
 		}
-		if !keyPattern.MatchString(task.Key) || !((task.Kind == "noop" && task.DelayMS == 0) || (task.Kind == "delay" && task.DelayMS >= 1 && task.DelayMS <= 30000)) {
+		if !keyPattern.MatchString(task.Key) || !((task.Kind == "noop" && task.DelayMS == 0 && task.Sandbox == nil) || (task.Kind == "delay" && task.DelayMS >= 1 && task.DelayMS <= 30000 && task.Sandbox == nil) || (task.Kind == "sandbox_go" && task.DelayMS == 0 && task.Sandbox != nil && task.Sandbox.Valid())) {
 			return CreateInput{}, ErrInvalid
 		}
 		if _, ok := seen[task.Key]; ok {
@@ -80,6 +82,10 @@ func Normalize(in CreateInput) (CreateInput, error) {
 	}
 	for i := range in.Tasks {
 		in.Tasks[i].DependsOn = append([]string(nil), in.Tasks[i].DependsOn...)
+		if in.Tasks[i].Sandbox != nil {
+			value := *in.Tasks[i].Sandbox
+			in.Tasks[i].Sandbox = &value
+		}
 		slices.Sort(in.Tasks[i].DependsOn)
 	}
 	return in, nil
@@ -89,7 +95,7 @@ func Normalize(in CreateInput) (CreateInput, error) {
 // Future input fields require an explicit compatibility rule and a new version.
 // Version 1 uses this fixed typed representation; changing it changes old hashes.
 func HashForVersion(in CreateInput, version int) ([32]byte, error) {
-	if version != 1 && version != 2 && version != 3 && version != 4 {
+	if version != 1 && version != 2 && version != 3 && version != 4 && version != 5 {
 		return [32]byte{}, ErrState
 	}
 	normalized, err := Normalize(in)
@@ -102,6 +108,13 @@ func HashForVersion(in CreateInput, version int) ([32]byte, error) {
 		}
 		for _, task := range normalized.Tasks {
 			if task.TimeoutMS != 0 || task.MaxAttempts != 0 {
+				return [32]byte{}, ErrConflict
+			}
+		}
+	}
+	if version < 5 {
+		for _, task := range normalized.Tasks {
+			if task.Sandbox != nil || task.Kind == "sandbox_go" {
 				return [32]byte{}, ErrConflict
 			}
 		}

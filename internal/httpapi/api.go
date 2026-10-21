@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"forgeswarm/internal/sandbox"
 	"forgeswarm/internal/workflow"
 	"github.com/google/uuid"
 )
@@ -70,6 +71,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/v1/workflows/{id}/events", a.method(http.MethodGet, a.events))
 	mux.HandleFunc("/v1/workflows/{id}/tasks/{task_id}", a.method(http.MethodGet, a.task))
 	mux.HandleFunc("/v1/workflows/{id}/tasks/{task_id}/attempts", a.method(http.MethodGet, a.attempts))
+	mux.HandleFunc("/v1/workflows/{id}/artifacts/{artifact_id}", a.method(http.MethodGet, a.artifact))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { a.fail(w, r, 404, "not_found", "Resource not found.") })
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -192,13 +194,17 @@ func objectKeys(dec *json.Decoder, allowed map[string]bool) error {
 				return workflow.ErrInvalid
 			}
 			for dec.More() {
-				if err := objectKeys(dec, map[string]bool{"key": true, "kind": true, "depends_on": true, "delay_ms": true, "timeout_ms": true, "max_attempts": true}); err != nil {
+				if err := objectKeys(dec, map[string]bool{"key": true, "kind": true, "depends_on": true, "delay_ms": true, "timeout_ms": true, "max_attempts": true, "sandbox": true}); err != nil {
 					return err
 				}
 			}
 			token, err = dec.Token()
 			if err != nil || token != json.Delim(']') {
 				return workflow.ErrInvalid
+			}
+		} else if key == "sandbox" {
+			if err := objectKeys(dec, map[string]bool{"schema_version": true, "fixture_id": true, "command": true}); err != nil {
+				return err
 			}
 		} else if key == "depends_on" {
 			token, err = dec.Token()
@@ -218,7 +224,7 @@ func objectKeys(dec *json.Decoder, allowed map[string]bool) error {
 			if err != nil || token != json.Delim(']') {
 				return workflow.ErrInvalid
 			}
-		} else if key == "delay_ms" || key == "timeout_ms" || key == "max_attempts" {
+		} else if key == "delay_ms" || key == "timeout_ms" || key == "max_attempts" || key == "schema_version" {
 			token, err = dec.Token()
 			if err != nil {
 				return workflow.ErrInvalid
@@ -241,6 +247,35 @@ func objectKeys(dec *json.Decoder, allowed map[string]bool) error {
 		return workflow.ErrInvalid
 	}
 	return nil
+}
+
+// Small local artifact bodies are returned as bounded JSON/base64; never render
+// repository-controlled HTML, infer executable types or accept a host path.
+func (a *API) artifact(w http.ResponseWriter, r *http.Request) {
+	wf, ok := a.id(w, r)
+	if !ok {
+		return
+	}
+	text := r.PathValue("artifact_id")
+	id, err := uuid.Parse(text)
+	if err != nil || len(text) != 36 || id == uuid.Nil || r.URL.RawQuery != "" {
+		a.serviceError(w, r, workflow.ErrInvalid)
+		return
+	}
+	store, ok := a.service.(interface {
+		Artifact(context.Context, uuid.UUID, uuid.UUID) (sandbox.ArtifactRecord, error)
+	})
+	if !ok {
+		a.serviceError(w, r, workflow.ErrUnavailable)
+		return
+	}
+	value, err := store.Artifact(r.Context(), wf, id)
+	if err != nil {
+		a.serviceError(w, r, err)
+		return
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	writeJSON(w, 200, value)
 }
 
 func decodeCreate(data []byte) (workflow.CreateInput, error) {

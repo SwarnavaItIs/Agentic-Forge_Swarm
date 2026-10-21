@@ -187,7 +187,7 @@ func (s *Store) Create(ctx context.Context, key string, in workflow.CreateInput)
 				return workflow.Receipt{}, err
 			}
 			taskIDs[task.Key] = taskID
-			_, err = tx.Exec(ctx, `INSERT INTO tasks(id,workflow_id,task_key,position,kind,delay_ms,status,max_attempts,deadline_at) VALUES($1,$2,$3,$4,$5,$6,'PENDING',$7,$8)`, taskID, id, task.Key, position, task.Kind, task.DelayMS, maxAttempts, taskDeadline)
+			_, err = tx.Exec(ctx, `INSERT INTO tasks(id,workflow_id,task_key,position,kind,delay_ms,status,max_attempts,deadline_at,sandbox_input) VALUES($1,$2,$3,$4,$5,$6,'PENDING',$7,$8,$9)`, taskID, id, task.Key, position, task.Kind, task.DelayMS, maxAttempts, taskDeadline, task.Sandbox)
 			if err != nil {
 				return workflow.Receipt{}, classify(err)
 			}
@@ -327,7 +327,9 @@ func (s *Store) Ready(ctx context.Context) error {
 	rows, err := s.pool.Query(ctx, `SELECT w.id,w.name,w.status,w.version,w.creation_key,w.request_hash,w.request_schema_version,w.created_at,w.updated_at,
 		w.last_event_sequence,w.scheduler_checked_at,t.id,t.workflow_id,t.task_key,t.position,t.kind,t.status,t.created_at,t.updated_at,e.workflow_id,e.sequence,e.event_type,e.payload,e.occurred_at,d.task_id,d.depends_on_task_id
 		FROM workflows w LEFT JOIN tasks t ON t.workflow_id=w.id LEFT JOIN workflow_events e ON e.workflow_id=w.id LEFT JOIN task_dependencies d ON d.workflow_id=w.id
-		LEFT JOIN task_attempts a ON a.id=t.current_attempt_id LEFT JOIN outbox o ON o.task_id=t.id WHERE false`)
+		LEFT JOIN task_attempts a ON a.id=t.current_attempt_id LEFT JOIN outbox o ON o.task_id=t.id
+		LEFT JOIN sandbox_commands sc ON sc.attempt_id=a.id LEFT JOIN sandbox_executions se ON se.attempt_id=a.id
+		LEFT JOIN sandbox_artifacts sa ON sa.attempt_id=a.id WHERE false`)
 	if err != nil {
 		return classify(err)
 	}

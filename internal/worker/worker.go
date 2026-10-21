@@ -1,4 +1,4 @@
-// Package worker executes only bounded noop/delay diagnostics. Notifications
+// Package worker executes bounded diagnostics and registered sandbox fixtures. Notifications
 // are acknowledged after durable claim; completion recovery belongs to leases.
 package worker
 
@@ -10,6 +10,7 @@ import (
 	"forgeswarm/internal/broker"
 	"forgeswarm/internal/config"
 	"forgeswarm/internal/execution"
+	"forgeswarm/internal/sandbox"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/grpc/codes"
@@ -46,6 +47,9 @@ func claim(ctx context.Context, client workerv1.CoordinatorClient, c config.Dist
 	return a, err
 }
 func Handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Broker, c config.Distributed, instance uuid.UUID, msg jetstream.Msg, logger *slog.Logger) {
+	HandleWithSandbox(ctx, client, b, c, instance, msg, logger, nil)
+}
+func HandleWithSandbox(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Broker, c config.Distributed, instance uuid.UUID, msg jetstream.Msg, logger *slog.Logger, driver *sandbox.Docker) {
 	n, err := execution.DecodeNotification(msg.Data())
 	if err != nil {
 		call, done := context.WithTimeout(ctx, c.RPCTimeout)
@@ -110,15 +114,35 @@ func Handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 		}
 	}()
 	success := true
+	var sandboxResult *sandbox.Result
+	cleanupConfirmed := true
 	switch a.Kind {
 	case "noop":
 	case "delay":
 		success = pause(execCtx, time.Duration(a.DelayMs)*time.Millisecond)
+	case "sandbox_go":
+		cleanupConfirmed = false
+		if driver != nil {
+			result, e := ExecuteSandbox(execCtx, client, c, driver, a)
+			cleanupConfirmed = result.CleanupConfirmed
+			if e == nil {
+				sandboxResult = &result
+				success = result.Status == "exited" && result.ExitCode == 0
+			} else {
+				logger.Error("sandbox_execution_failed", "attempt_id", a.Id, "cleanup_confirmed", cleanupConfirmed, "error_class", "sandbox_execution_or_cleanup_failure")
+			}
+		}
 	default:
 		success = false
 	}
 	stopRenew()
 	<-renewDone
+	if a.Kind == "sandbox_go" && (!cleanupConfirmed || sandboxResult == nil) {
+		if cleanupConfirmed {
+			stopped()
+		}
+		return
+	}
 	if execCtx.Err() != nil || ctx.Err() != nil {
 		stopped()
 		logger.Info("diagnostic_stopped", "attempt_id", a.Id, "reason", "lease_cancel_or_deadline")
@@ -131,7 +155,10 @@ func Handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 	}
 	for i := 0; i < 3; i++ {
 		call, done := context.WithTimeout(ctx, c.RPCTimeout)
-		if success {
+		if sandboxResult != nil {
+			wire, _ := json.Marshal(sandboxResult)
+			_, err = client.CompleteSandbox(call, &workerv1.SandboxOutcome{Request: &workerv1.SandboxRequest{Attempt: owned, RequestId: sandbox.RequestID(uuid.MustParse(a.Id)).String()}, CommandResultJson: wire})
+		} else if success {
 			_, err = client.CompleteTask(call, r)
 		} else {
 			_, err = client.FailTask(call, r)
@@ -151,14 +178,23 @@ func Handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 	}
 }
 func Run(stop context.Context, client workerv1.CoordinatorClient, b *broker.Broker, c config.Distributed, logger *slog.Logger) error {
+	return RunWithSandbox(stop, client, b, c, logger, nil)
+}
+func RunWithSandbox(stop context.Context, client workerv1.CoordinatorClient, b *broker.Broker, c config.Distributed, logger *slog.Logger, driver *sandbox.Docker) error {
 	instance := uuid.New()
 	work, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	capabilities := []string{"noop", "delay"}
+	if driver != nil {
+		capabilities = append(capabilities, "sandbox_go")
+	}
+	workerID := ""
 	for {
 		call, done := context.WithTimeout(stop, c.RPCTimeout)
-		_, err := client.RegisterWorker(call, &workerv1.RegisterRequest{InstanceId: instance.String(), Capabilities: []string{"noop", "delay"}, Capacity: int32(c.Capacity)})
+		registered, err := client.RegisterWorker(call, &workerv1.RegisterRequest{InstanceId: instance.String(), Capabilities: capabilities, Capacity: int32(c.Capacity)})
 		done()
 		if err == nil {
+			workerID = registered.WorkerId
 			break
 		}
 		if !pause(stop, c.Poll) {
@@ -166,6 +202,19 @@ func Run(stop context.Context, client workerv1.CoordinatorClient, b *broker.Brok
 		}
 		if status.Code(err) == codes.Unauthenticated || status.Code(err) == codes.InvalidArgument {
 			return err
+		}
+	}
+	if driver != nil {
+		for {
+			if err := reconcileSandbox(stop, client, c, driver, workerID, instance); err != nil {
+				driver.Suspend()
+				logger.Error("sandbox_cleanup_retry_required", "error_class", "runtime_or_coordination_unavailable")
+				if !pause(stop, 500*time.Millisecond) {
+					return nil
+				}
+				continue
+			}
+			break
 		}
 	}
 	var wg sync.WaitGroup
@@ -181,9 +230,27 @@ func Run(stop context.Context, client workerv1.CoordinatorClient, b *broker.Brok
 			}
 		}
 	}()
+	if driver != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for pause(work, 2*time.Second) {
+				if err := reconcileSandbox(work, client, c, driver, workerID, instance); err != nil {
+					driver.Suspend()
+					logger.Error("sandbox_cleanup_retry_required", "error_class", "runtime_or_coordination_unavailable")
+				}
+			}
+		}()
+	}
 	slots := make(chan struct{}, c.Capacity)
 	var jobs sync.WaitGroup
 	for stop.Err() == nil {
+		if driver != nil && !driver.CanStart() {
+			if !pause(stop, c.Poll) {
+				break
+			}
+			continue
+		}
 		available := c.Capacity - len(slots)
 		if available == 0 {
 			if !pause(stop, c.Poll) {
@@ -218,7 +285,7 @@ func Run(stop context.Context, client workerv1.CoordinatorClient, b *broker.Brok
 					_ = m.NakWithDelay(time.Second)
 					return
 				}
-				Handle(work, client, b, c, instance, m, logger)
+				HandleWithSandbox(work, client, b, c, instance, m, logger, driver)
 			}(msg)
 		}
 		if batch.Error() != nil {

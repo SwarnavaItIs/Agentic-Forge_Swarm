@@ -19,15 +19,18 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Coordinator_RegisterWorker_FullMethodName  = "/forgeswarm.worker.v1.Coordinator/RegisterWorker"
-	Coordinator_HeartbeatWorker_FullMethodName = "/forgeswarm.worker.v1.Coordinator/HeartbeatWorker"
-	Coordinator_SetDraining_FullMethodName     = "/forgeswarm.worker.v1.Coordinator/SetDraining"
-	Coordinator_ClaimTask_FullMethodName       = "/forgeswarm.worker.v1.Coordinator/ClaimTask"
-	Coordinator_RenewLease_FullMethodName      = "/forgeswarm.worker.v1.Coordinator/RenewLease"
-	Coordinator_CompleteTask_FullMethodName    = "/forgeswarm.worker.v1.Coordinator/CompleteTask"
-	Coordinator_FailTask_FullMethodName        = "/forgeswarm.worker.v1.Coordinator/FailTask"
-	Coordinator_AuthorizeTool_FullMethodName   = "/forgeswarm.worker.v1.Coordinator/AuthorizeTool"
-	Coordinator_AcknowledgeStop_FullMethodName = "/forgeswarm.worker.v1.Coordinator/AcknowledgeStop"
+	Coordinator_RegisterWorker_FullMethodName   = "/forgeswarm.worker.v1.Coordinator/RegisterWorker"
+	Coordinator_HeartbeatWorker_FullMethodName  = "/forgeswarm.worker.v1.Coordinator/HeartbeatWorker"
+	Coordinator_SetDraining_FullMethodName      = "/forgeswarm.worker.v1.Coordinator/SetDraining"
+	Coordinator_ClaimTask_FullMethodName        = "/forgeswarm.worker.v1.Coordinator/ClaimTask"
+	Coordinator_RenewLease_FullMethodName       = "/forgeswarm.worker.v1.Coordinator/RenewLease"
+	Coordinator_CompleteTask_FullMethodName     = "/forgeswarm.worker.v1.Coordinator/CompleteTask"
+	Coordinator_FailTask_FullMethodName         = "/forgeswarm.worker.v1.Coordinator/FailTask"
+	Coordinator_AuthorizeTool_FullMethodName    = "/forgeswarm.worker.v1.Coordinator/AuthorizeTool"
+	Coordinator_AcknowledgeStop_FullMethodName  = "/forgeswarm.worker.v1.Coordinator/AcknowledgeStop"
+	Coordinator_AuthorizeSandbox_FullMethodName = "/forgeswarm.worker.v1.Coordinator/AuthorizeSandbox"
+	Coordinator_CompleteSandbox_FullMethodName  = "/forgeswarm.worker.v1.Coordinator/CompleteSandbox"
+	Coordinator_SandboxCleanup_FullMethodName   = "/forgeswarm.worker.v1.Coordinator/SandboxCleanup"
 )
 
 // CoordinatorClient is the client API for Coordinator service.
@@ -45,6 +48,9 @@ type CoordinatorClient interface {
 	FailTask(ctx context.Context, in *OutcomeRequest, opts ...grpc.CallOption) (*Attempt, error)
 	AuthorizeTool(ctx context.Context, in *AttemptRequest, opts ...grpc.CallOption) (*Attempt, error)
 	AcknowledgeStop(ctx context.Context, in *AttemptRequest, opts ...grpc.CallOption) (*Attempt, error)
+	AuthorizeSandbox(ctx context.Context, in *SandboxRequest, opts ...grpc.CallOption) (*Attempt, error)
+	CompleteSandbox(ctx context.Context, in *SandboxOutcome, opts ...grpc.CallOption) (*Attempt, error)
+	SandboxCleanup(ctx context.Context, in *InstanceRequest, opts ...grpc.CallOption) (*CleanupPage, error)
 }
 
 type coordinatorClient struct {
@@ -145,6 +151,36 @@ func (c *coordinatorClient) AcknowledgeStop(ctx context.Context, in *AttemptRequ
 	return out, nil
 }
 
+func (c *coordinatorClient) AuthorizeSandbox(ctx context.Context, in *SandboxRequest, opts ...grpc.CallOption) (*Attempt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Attempt)
+	err := c.cc.Invoke(ctx, Coordinator_AuthorizeSandbox_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coordinatorClient) CompleteSandbox(ctx context.Context, in *SandboxOutcome, opts ...grpc.CallOption) (*Attempt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Attempt)
+	err := c.cc.Invoke(ctx, Coordinator_CompleteSandbox_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coordinatorClient) SandboxCleanup(ctx context.Context, in *InstanceRequest, opts ...grpc.CallOption) (*CleanupPage, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CleanupPage)
+	err := c.cc.Invoke(ctx, Coordinator_SandboxCleanup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoordinatorServer is the server API for Coordinator service.
 // All implementations must embed UnimplementedCoordinatorServer
 // for forward compatibility.
@@ -160,6 +196,9 @@ type CoordinatorServer interface {
 	FailTask(context.Context, *OutcomeRequest) (*Attempt, error)
 	AuthorizeTool(context.Context, *AttemptRequest) (*Attempt, error)
 	AcknowledgeStop(context.Context, *AttemptRequest) (*Attempt, error)
+	AuthorizeSandbox(context.Context, *SandboxRequest) (*Attempt, error)
+	CompleteSandbox(context.Context, *SandboxOutcome) (*Attempt, error)
+	SandboxCleanup(context.Context, *InstanceRequest) (*CleanupPage, error)
 	mustEmbedUnimplementedCoordinatorServer()
 }
 
@@ -196,6 +235,15 @@ func (UnimplementedCoordinatorServer) AuthorizeTool(context.Context, *AttemptReq
 }
 func (UnimplementedCoordinatorServer) AcknowledgeStop(context.Context, *AttemptRequest) (*Attempt, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AcknowledgeStop not implemented")
+}
+func (UnimplementedCoordinatorServer) AuthorizeSandbox(context.Context, *SandboxRequest) (*Attempt, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AuthorizeSandbox not implemented")
+}
+func (UnimplementedCoordinatorServer) CompleteSandbox(context.Context, *SandboxOutcome) (*Attempt, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CompleteSandbox not implemented")
+}
+func (UnimplementedCoordinatorServer) SandboxCleanup(context.Context, *InstanceRequest) (*CleanupPage, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SandboxCleanup not implemented")
 }
 func (UnimplementedCoordinatorServer) mustEmbedUnimplementedCoordinatorServer() {}
 func (UnimplementedCoordinatorServer) testEmbeddedByValue()                     {}
@@ -380,6 +428,60 @@ func _Coordinator_AcknowledgeStop_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Coordinator_AuthorizeSandbox_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SandboxRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServer).AuthorizeSandbox(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Coordinator_AuthorizeSandbox_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServer).AuthorizeSandbox(ctx, req.(*SandboxRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Coordinator_CompleteSandbox_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SandboxOutcome)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServer).CompleteSandbox(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Coordinator_CompleteSandbox_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServer).CompleteSandbox(ctx, req.(*SandboxOutcome))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Coordinator_SandboxCleanup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InstanceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServer).SandboxCleanup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Coordinator_SandboxCleanup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServer).SandboxCleanup(ctx, req.(*InstanceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Coordinator_ServiceDesc is the grpc.ServiceDesc for Coordinator service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -422,6 +524,18 @@ var Coordinator_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AcknowledgeStop",
 			Handler:    _Coordinator_AcknowledgeStop_Handler,
+		},
+		{
+			MethodName: "AuthorizeSandbox",
+			Handler:    _Coordinator_AuthorizeSandbox_Handler,
+		},
+		{
+			MethodName: "CompleteSandbox",
+			Handler:    _Coordinator_CompleteSandbox_Handler,
+		},
+		{
+			MethodName: "SandboxCleanup",
+			Handler:    _Coordinator_SandboxCleanup_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
