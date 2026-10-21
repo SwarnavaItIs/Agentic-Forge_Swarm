@@ -2807,6 +2807,14 @@
           "exit": 0,
           "required": true,
           "evidence_path": "artifacts/verification/stage-05/049-diff-check.log"
+        },
+        {
+          "command": "Local native services: ready API, successful registered Go fixture, accepted artifact lengths and SHA-256",
+          "started_at": "2026-10-21T05:41:37.510641+00:00",
+          "finished_at": "2026-10-21T05:41:37.808030+00:00",
+          "exit": 0,
+          "required": false,
+          "evidence_path": "artifacts/verification/stage-05/development-demo.json"
         }
       ],
       "evidence_index": "artifacts/verification/stage-05/results.json",
@@ -2843,7 +2851,18 @@
         "https://git-scm.com/docs/git-ls-tree",
         "https://git-scm.com/docs/git-cat-file"
       ],
-      "next_stage": 6
+      "next_stage": 6,
+      "development_runtime": {
+        "status": "running_local",
+        "observed_at": "2026-10-21T05:41:37.759390+00:00",
+        "verified_source_commit": "b237dbe19e5bc205c8c5076014b7c70ed9b400f7",
+        "health": "http://127.0.0.1:8080/health/ready",
+        "workflow": "http://127.0.0.1:8080/v1/workflows/f07767e4-dc90-40b3-83b3-f7141c1fa511",
+        "graph": "http://127.0.0.1:8080/v1/workflows/f07767e4-dc90-40b3-83b3-f7141c1fa511/graph",
+        "artifacts_verified": 4,
+        "evidence_path": "artifacts/verification/stage-05/development-demo.json",
+        "services_registry": ".cache/dev/services.json"
+      }
     }
   }
 }
