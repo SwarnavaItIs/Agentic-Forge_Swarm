@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "provider": "openai",
+  "model": "gpt-5.4-mini-2026-03-17",
+  "verified_at": "2026-10-21",
+  "source": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+  "input_microusd_per_million": 750000,
+  "output_microusd_per_million": 4500000,
+  "maximum_estimate_microusd": 500000,
+  "note": "Conservative standard text estimates; cached-input discounts ignored. Configuration is not authorization to spend. Missing usage retains reservation and is labelled estimated. Reverify prices and account access before live enablement."
+}

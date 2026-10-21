@@ -36,9 +36,11 @@ def generate(check=True):
     for package,version in [("google.golang.org/protobuf/cmd/protoc-gen-go","v1.36.10"),("google.golang.org/grpc/cmd/protoc-gen-go-grpc","v1.5.1")]:
         dev.run(["go","install",package+"@"+version],env=env,label="proto-plugin")
     out=target if check else dev.ROOT
-    dev.run([compiler,"--go_out="+str(out),"--go_opt=module=forgeswarm","--go-grpc_out="+str(out),"--go-grpc_opt=module=forgeswarm","api/worker/v1/worker.proto"],env=env,label="proto-generate")
+    dev.run([compiler,"--go_out="+str(out),"--go_opt=module=forgeswarm","--go-grpc_out="+str(out),"--go-grpc_opt=module=forgeswarm","api/worker/v1/worker.proto","api/agent/v1/agent.proto"],env=env,label="proto-generate")
     if check:
         for name in ["worker.pb.go","worker_grpc.pb.go"]:
             if (out/"api/worker/v1"/name).read_bytes()!=(dev.ROOT/"api/worker/v1"/name).read_bytes():raise RuntimeError("generated protobuf differs: "+name)
+        for name in ["agent.pb.go","agent_grpc.pb.go"]:
+            if (out/"api/agent/v1"/name).read_bytes()!=(dev.ROOT/"api/agent/v1"/name).read_bytes():raise RuntimeError("generated protobuf differs: "+name)
         print("pinned Protobuf regeneration matches committed sources",flush=True)
 if __name__=="__main__":generate(len(sys.argv)==1 or sys.argv[1]!="write")

@@ -2,6 +2,11 @@
 .cache/
 bin/
 __pycache__/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+pytest-cache-files-*/
 # Generated sanitized evidence: verification replaces the latest run; retain locally
 # until the next run, export externally if needed. Never commit command logs.
 artifacts/verification/

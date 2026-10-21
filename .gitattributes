@@ -1,0 +1,4 @@
+# Generated protocol bytes must survive a Windows checkout unchanged.
+api/**/*.pb.go text eol=lf
+agent-runtime/generated/*.py text eol=lf
+agent-runtime/generated/*.pyi text eol=lf

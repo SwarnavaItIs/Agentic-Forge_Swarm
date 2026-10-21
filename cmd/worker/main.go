@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"forgeswarm/api/agent/v1"
 	"forgeswarm/api/worker/v1"
+	"forgeswarm/internal/agent"
 	"forgeswarm/internal/broker"
 	"forgeswarm/internal/config"
 	"forgeswarm/internal/rpc"
@@ -58,5 +60,19 @@ func run(log *slog.Logger) error {
 	}
 	defer b.Close()
 	log.Info("worker_started", "capacity", c.Capacity)
-	return worker.RunWithSandbox(ctx, workerv1.NewCoordinatorClient(conn), b, c, log, driver)
+	var runtime *worker.AgentRuntime
+	if os.Getenv("AGENT_ENABLED") == "true" {
+		if driver == nil {
+			return sandbox.ErrPolicy
+		}
+		connection, e := agent.DialRuntime(os.Getenv("AGENT_RUNTIME_ADDR"), os.Getenv("AGENT_RUNTIME_TOKEN"), os.Getenv("AGENT_INSECURE_LOCAL") == "true")
+		if e != nil {
+			return e
+		}
+		defer connection.Close()
+		runtime = &worker.AgentRuntime{Client: agentv1.NewRuntimeClient(connection)}
+	} else if v := os.Getenv("AGENT_ENABLED"); v != "" && v != "false" {
+		return sandbox.ErrPolicy
+	}
+	return worker.RunWithAgent(ctx, workerv1.NewCoordinatorClient(conn), b, c, log, driver, runtime)
 }

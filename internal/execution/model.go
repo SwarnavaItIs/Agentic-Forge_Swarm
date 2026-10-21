@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"forgeswarm/internal/agent"
 	"forgeswarm/internal/sandbox"
 	"github.com/google/uuid"
 	"io"
@@ -46,6 +47,7 @@ type Worker struct {
 type Attempt struct {
 	WorkflowID       uuid.UUID       `json:"workflow_id"`
 	Sandbox          *sandbox.Input  `json:"sandbox,omitempty"`
+	Agent            *agent.Input    `json:"agent,omitempty"`
 	SandboxExecution json.RawMessage `json:"sandbox_execution,omitempty"`
 	ID               uuid.UUID       `json:"id"`
 	TaskID           uuid.UUID       `json:"task_id"`

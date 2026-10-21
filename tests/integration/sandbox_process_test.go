@@ -146,7 +146,12 @@ func TestFixture(t *testing.T){fmt.Println("real constrained fixture")}`)
 			t.Error("worker did not drain")
 		}
 	})
-	waitFor(t, f, `SELECT count(*) FROM task_attempts WHERE task_id=$1 AND state='SUCCEEDED'`, task)
+	// Real image preparation/cache copy/compilation is not a 4s SQL
+	// interleaving barrier. Use the bounded real-Docker wait without weakening
+	// the accepted-outcome or single-receipt assertions below.
+	dockerWait(t, "accepted production sandbox result", func() bool {
+		return scalar(t, f, `SELECT count(*) FROM task_attempts WHERE task_id=$1 AND state='SUCCEEDED'`, task) == 1
+	})
 	if scalar(t, f, `SELECT count(*) FROM sandbox_artifacts WHERE task_id=$1`, task) != 4 || scalar(t, f, `SELECT count(*) FROM task_attempts WHERE task_id=$1`, task) != 1 {
 		t.Fatal("lost reply changed canonical artifacts")
 	}

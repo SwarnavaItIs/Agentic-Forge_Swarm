@@ -17,6 +17,8 @@ service Coordinator {
   rpc AuthorizeSandbox(SandboxRequest) returns (Attempt);
   rpc CompleteSandbox(SandboxOutcome) returns (Attempt);
   rpc SandboxCleanup(InstanceRequest) returns (CleanupPage);
+  rpc AgentEvent(AgentEventRequest) returns (Attempt);
+  rpc CompleteAgent(AgentOutcome) returns (Attempt);
 }
 message RegisterRequest { string instance_id = 1; repeated string capabilities = 2; int32 capacity = 3; }
 message InstanceRequest { string instance_id = 1; }
@@ -28,6 +30,8 @@ message OutcomeRequest { string instance_id = 1; string attempt_id = 2; int64 ge
 message SandboxRequest { AttemptRequest attempt = 1; string request_id = 2; }
 message SandboxOutcome { SandboxRequest request = 1; bytes command_result_json = 2; }
 message CleanupPage { repeated Attempt attempts = 1; }
+message AgentEventRequest { AttemptRequest attempt = 1; bytes event_json = 2; }
+message AgentOutcome { AttemptRequest attempt = 1; bytes outcome_json = 2; }
 message Attempt {
   string id = 1; string task_id = 2; int32 attempt_number = 3; int64 generation = 4;
   string state = 5; string kind = 6; int32 delay_ms = 7;
@@ -38,4 +42,5 @@ message Attempt {
   string workflow_id = 18; bytes sandbox_input_json = 19;
   string worker_id = 20; string instance_id = 21;
   bytes execution_metadata_json = 22;
+  bytes agent_input_json = 23;
 }

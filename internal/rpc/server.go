@@ -117,6 +117,9 @@ func attempt(a execution.Attempt) *workerv1.Attempt {
 	if a.Sandbox != nil {
 		out.SandboxInputJson, _ = json.Marshal(a.Sandbox)
 	}
+	if a.Agent != nil {
+		out.AgentInputJson, _ = json.Marshal(a.Agent)
+	}
 	return out
 }
 func id(text string) (uuid.UUID, error) {

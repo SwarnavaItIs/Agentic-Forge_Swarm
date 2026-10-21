@@ -17,6 +17,7 @@ import (
 type Payload struct {
 	Request  Request  `json:"request"`
 	Snapshot Snapshot `json:"snapshot"`
+	Profile  string   `json:"profile,omitempty"`
 }
 
 // ExecuteHelper runs ONLY in the constrained container. The immutable helper
@@ -62,6 +63,12 @@ func ExecuteHelper(ctx context.Context, p Payload) (Result, error) {
 		if ce != nil {
 			return Result{}, ce
 		}
+	}
+	if p.Profile != "" {
+		if p.Profile != "sum-v1" || r.Input.Command != "test" {
+			return Result{}, ErrPolicy
+		}
+		return executeProtected(ctx, r, s)
 	}
 	call, cancel := context.WithTimeout(ctx, time.Duration(r.Policy.TimeoutMS)*time.Millisecond)
 	defer cancel()

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"forgeswarm/internal/agent"
 	"forgeswarm/internal/execution"
 	"forgeswarm/internal/sandbox"
 	"forgeswarm/internal/workflow"
@@ -25,13 +26,13 @@ func admission(ctx context.Context, tx pgx.Tx) error {
 	return classify(err)
 }
 func (s *Store) RegisterWorker(ctx context.Context, id string, instance uuid.UUID, caps []string, capacity int) (execution.Worker, error) {
-	if !workflow.ValidCreationKey(id) || instance == uuid.Nil || capacity < 1 || capacity > s.limits.WorkerCapacity || len(caps) < 1 || len(caps) > 3 {
+	if !workflow.ValidCreationKey(id) || instance == uuid.Nil || capacity < 1 || capacity > s.limits.WorkerCapacity || len(caps) < 1 || len(caps) > 4 {
 		return execution.Worker{}, workflow.ErrInvalid
 	}
 	caps = append([]string(nil), caps...)
 	slices.Sort(caps)
 	for i, c := range caps {
-		if (c != "noop" && c != "delay" && c != "sandbox_go") || (i > 0 && caps[i-1] == c) {
+		if (c != "noop" && c != "delay" && c != "sandbox_go" && c != "agent_go") || (i > 0 && caps[i-1] == c) {
 			return execution.Worker{}, workflow.ErrInvalid
 		}
 	}
@@ -98,11 +99,11 @@ func lockWorker(ctx context.Context, tx pgx.Tx, id string, instance uuid.UUID) (
 	return w, classify(err)
 }
 
-const attemptColumns = `a.id,a.task_id,a.attempt_number,a.generation,a.state,t.kind,t.delay_ms,a.started_at,a.lease_expires_at,a.finished_at,a.outcome_digest,a.result_metadata,a.worker_id,a.worker_instance_id,t.deadline_at,a.cancel_requested_at IS NOT NULL,a.stop_reason,a.cleanup_required,a.last_error_class,a.workflow_id,t.sandbox_input,(SELECT metadata FROM sandbox_executions WHERE attempt_id=a.id)`
+const attemptColumns = `a.id,a.task_id,a.attempt_number,a.generation,a.state,t.kind,t.delay_ms,a.started_at,a.lease_expires_at,a.finished_at,a.outcome_digest,a.result_metadata,a.worker_id,a.worker_instance_id,t.deadline_at,a.cancel_requested_at IS NOT NULL,a.stop_reason,a.cleanup_required,a.last_error_class,a.workflow_id,t.sandbox_input,(SELECT metadata FROM sandbox_executions WHERE attempt_id=a.id),t.agent_input`
 
 func readAttempt(ctx context.Context, tx pgx.Tx, id uuid.UUID) (execution.Attempt, error) {
 	var a execution.Attempt
-	err := tx.QueryRow(ctx, `SELECT `+attemptColumns+` FROM task_attempts a JOIN tasks t ON t.id=a.task_id WHERE a.id=$1`, id).Scan(&a.ID, &a.TaskID, &a.Number, &a.Generation, &a.State, &a.Kind, &a.DelayMS, &a.StartedAt, &a.LeaseExpiresAt, &a.FinishedAt, &a.Digest, &a.Result, &a.WorkerID, &a.Instance, &a.DeadlineAt, &a.StopRequested, &a.StopReason, &a.CleanupRequired, &a.LastError, &a.WorkflowID, &a.Sandbox, &a.SandboxExecution)
+	err := tx.QueryRow(ctx, `SELECT `+attemptColumns+` FROM task_attempts a JOIN tasks t ON t.id=a.task_id WHERE a.id=$1`, id).Scan(&a.ID, &a.TaskID, &a.Number, &a.Generation, &a.State, &a.Kind, &a.DelayMS, &a.StartedAt, &a.LeaseExpiresAt, &a.FinishedAt, &a.Digest, &a.Result, &a.WorkerID, &a.Instance, &a.DeadlineAt, &a.StopRequested, &a.StopReason, &a.CleanupRequired, &a.LastError, &a.WorkflowID, &a.Sandbox, &a.SandboxExecution, &a.Agent)
 	return a, classify(err)
 }
 
@@ -367,7 +368,7 @@ func (s *Store) FailAttempt(ctx context.Context, worker string, instance, id uui
 	}
 	return s.finishAttempt(ctx, worker, instance, id, generation, false, class, result, nil)
 }
-func (s *Store) finishAttempt(ctx context.Context, worker string, instance, id uuid.UUID, generation int64, success bool, class string, result []byte, command *sandbox.Result) (execution.Attempt, error) {
+func (s *Store) finishAttempt(ctx context.Context, worker string, instance, id uuid.UUID, generation int64, success bool, class string, result []byte, command *sandbox.Result, proof ...*agent.Outcome) (execution.Attempt, error) {
 	body, digest, err := execution.Outcome(result)
 	if err != nil {
 		return execution.Attempt{}, workflow.ErrInvalid
@@ -385,7 +386,11 @@ func (s *Store) finishAttempt(ctx context.Context, worker string, instance, id u
 	if err != nil {
 		return a, err
 	}
-	if a.Kind == "sandbox_go" && command == nil || a.Kind != "sandbox_go" && command != nil {
+	if a.Kind == "agent_go" {
+		if len(proof) != 1 || proof[0] == nil {
+			return a, workflow.ErrInvalid
+		}
+	} else if a.Kind == "sandbox_go" && command == nil || a.Kind != "sandbox_go" && command != nil {
 		return a, workflow.ErrInvalid
 	}
 	if a.State == workflow.Succeeded || a.State == workflow.Failed {
@@ -405,6 +410,11 @@ func (s *Store) finishAttempt(ctx context.Context, worker string, instance, id u
 	}
 	if !live {
 		return execution.Attempt{}, execution.ErrStale
+	}
+	if a.Kind == "agent_go" {
+		if err = s.validateAgent(ctx, tx, a, *proof[0]); err != nil {
+			return a, err
+		}
 	}
 	var bounded bool
 	if err = tx.QueryRow(ctx, `SELECT octet_length($1::jsonb::text)<=4096`, body).Scan(&bounded); err != nil {

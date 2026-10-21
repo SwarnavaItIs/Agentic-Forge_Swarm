@@ -31,6 +31,8 @@ const (
 	Coordinator_AuthorizeSandbox_FullMethodName = "/forgeswarm.worker.v1.Coordinator/AuthorizeSandbox"
 	Coordinator_CompleteSandbox_FullMethodName  = "/forgeswarm.worker.v1.Coordinator/CompleteSandbox"
 	Coordinator_SandboxCleanup_FullMethodName   = "/forgeswarm.worker.v1.Coordinator/SandboxCleanup"
+	Coordinator_AgentEvent_FullMethodName       = "/forgeswarm.worker.v1.Coordinator/AgentEvent"
+	Coordinator_CompleteAgent_FullMethodName    = "/forgeswarm.worker.v1.Coordinator/CompleteAgent"
 )
 
 // CoordinatorClient is the client API for Coordinator service.
@@ -51,6 +53,8 @@ type CoordinatorClient interface {
 	AuthorizeSandbox(ctx context.Context, in *SandboxRequest, opts ...grpc.CallOption) (*Attempt, error)
 	CompleteSandbox(ctx context.Context, in *SandboxOutcome, opts ...grpc.CallOption) (*Attempt, error)
 	SandboxCleanup(ctx context.Context, in *InstanceRequest, opts ...grpc.CallOption) (*CleanupPage, error)
+	AgentEvent(ctx context.Context, in *AgentEventRequest, opts ...grpc.CallOption) (*Attempt, error)
+	CompleteAgent(ctx context.Context, in *AgentOutcome, opts ...grpc.CallOption) (*Attempt, error)
 }
 
 type coordinatorClient struct {
@@ -181,6 +185,26 @@ func (c *coordinatorClient) SandboxCleanup(ctx context.Context, in *InstanceRequ
 	return out, nil
 }
 
+func (c *coordinatorClient) AgentEvent(ctx context.Context, in *AgentEventRequest, opts ...grpc.CallOption) (*Attempt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Attempt)
+	err := c.cc.Invoke(ctx, Coordinator_AgentEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coordinatorClient) CompleteAgent(ctx context.Context, in *AgentOutcome, opts ...grpc.CallOption) (*Attempt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Attempt)
+	err := c.cc.Invoke(ctx, Coordinator_CompleteAgent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoordinatorServer is the server API for Coordinator service.
 // All implementations must embed UnimplementedCoordinatorServer
 // for forward compatibility.
@@ -199,6 +223,8 @@ type CoordinatorServer interface {
 	AuthorizeSandbox(context.Context, *SandboxRequest) (*Attempt, error)
 	CompleteSandbox(context.Context, *SandboxOutcome) (*Attempt, error)
 	SandboxCleanup(context.Context, *InstanceRequest) (*CleanupPage, error)
+	AgentEvent(context.Context, *AgentEventRequest) (*Attempt, error)
+	CompleteAgent(context.Context, *AgentOutcome) (*Attempt, error)
 	mustEmbedUnimplementedCoordinatorServer()
 }
 
@@ -244,6 +270,12 @@ func (UnimplementedCoordinatorServer) CompleteSandbox(context.Context, *SandboxO
 }
 func (UnimplementedCoordinatorServer) SandboxCleanup(context.Context, *InstanceRequest) (*CleanupPage, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SandboxCleanup not implemented")
+}
+func (UnimplementedCoordinatorServer) AgentEvent(context.Context, *AgentEventRequest) (*Attempt, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AgentEvent not implemented")
+}
+func (UnimplementedCoordinatorServer) CompleteAgent(context.Context, *AgentOutcome) (*Attempt, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CompleteAgent not implemented")
 }
 func (UnimplementedCoordinatorServer) mustEmbedUnimplementedCoordinatorServer() {}
 func (UnimplementedCoordinatorServer) testEmbeddedByValue()                     {}
@@ -482,6 +514,42 @@ func _Coordinator_SandboxCleanup_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Coordinator_AgentEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AgentEventRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServer).AgentEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Coordinator_AgentEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServer).AgentEvent(ctx, req.(*AgentEventRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Coordinator_CompleteAgent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AgentOutcome)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServer).CompleteAgent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Coordinator_CompleteAgent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServer).CompleteAgent(ctx, req.(*AgentOutcome))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Coordinator_ServiceDesc is the grpc.ServiceDesc for Coordinator service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -536,6 +604,14 @@ var Coordinator_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SandboxCleanup",
 			Handler:    _Coordinator_SandboxCleanup_Handler,
+		},
+		{
+			MethodName: "AgentEvent",
+			Handler:    _Coordinator_AgentEvent_Handler,
+		},
+		{
+			MethodName: "CompleteAgent",
+			Handler:    _Coordinator_CompleteAgent_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

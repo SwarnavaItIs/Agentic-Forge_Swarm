@@ -29,7 +29,7 @@ func (s *Store) AuthorizeSandbox(ctx context.Context, worker string, instance, i
 	if !live {
 		return a, execution.ErrStale
 	}
-	if a.Kind != "sandbox_go" || a.Sandbox == nil || !a.Sandbox.Valid() {
+	if (a.Kind != "sandbox_go" && a.Kind != "agent_go") || a.Sandbox == nil || !a.Sandbox.Valid() {
 		return a, workflow.ErrInvalid
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO sandbox_commands(attempt_id,request_id,workflow_id,task_id,generation,input) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(attempt_id) DO NOTHING`, id, request, a.WorkflowID, a.TaskID, generation, a.Sandbox)

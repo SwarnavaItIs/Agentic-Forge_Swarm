@@ -28,6 +28,7 @@ type API struct {
 	logger                       *slog.Logger
 	requestTimeout, readyTimeout time.Duration
 	stopping                     atomic.Bool
+	agentCatalog                 string
 }
 
 func New(service workflow.Service, logger *slog.Logger, requestTimeout, readyTimeout time.Duration) *API {
@@ -65,6 +66,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/health/live", a.method(http.MethodGet, a.live))
 	mux.HandleFunc("/health/ready", a.method(http.MethodGet, a.ready))
 	mux.HandleFunc("/v1/workflows", a.method(http.MethodPost, a.create))
+	mux.HandleFunc("/v1/jobs", a.method(http.MethodPost, a.job))
 	mux.HandleFunc("/v1/workflows/{id}", a.method(http.MethodGet, a.details))
 	mux.HandleFunc("/v1/workflows/{id}/cancel", a.method(http.MethodPost, a.cancel))
 	mux.HandleFunc("/v1/workflows/{id}/graph", a.method(http.MethodGet, a.graph))

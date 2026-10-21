@@ -235,6 +235,23 @@ func matchesPolicy(i Inspection, r Request) bool {
 // request IDs and Docker names are stable per attempt; duplicate local handlers
 // cannot execute twice. Resource cleanup always outlives the cancelled context.
 func (d *Docker) RunCommand(ctx context.Context, r Request, authorize func(context.Context) error) (result Result, err error) {
+	return d.runSnapshot(ctx, r, authorize, nil, "")
+}
+
+// RunSnapshot accepts a trusted gateway candidate, never model-selected Docker
+// options. It uses the identical kernel policy, fences, watchdog and teardown.
+// The content-addressed candidate stays in memory; no host checkout is executed.
+func (d *Docker) RunSnapshot(ctx context.Context, r Request, s Snapshot, profile string, authorize func(context.Context) error) (Result, error) {
+	if profile != "sum-v1" {
+		return Result{}, ErrPolicy
+	}
+	_, id, err := SnapshotBytes(s)
+	if err != nil || id != r.Input.FixtureID {
+		return Result{}, ErrPolicy
+	}
+	return d.runSnapshot(ctx, r, authorize, &s, profile)
+}
+func (d *Docker) runSnapshot(ctx context.Context, r Request, authorize func(context.Context) error, candidate *Snapshot, profile string) (result Result, err error) {
 	if !r.Valid() || r.Binding.Installation != d.Installation || r.Image != d.image || authorize == nil || !d.CanStart() {
 		return result, ErrPolicy
 	}
@@ -246,7 +263,12 @@ func (d *Docker) RunCommand(ctx context.Context, r Request, authorize func(conte
 	if err = authorize(ctx); err != nil {
 		return result, err
 	}
-	s, err := d.PrepareWorkspace(r)
+	var s Snapshot
+	if candidate == nil {
+		s, err = d.PrepareWorkspace(r)
+	} else {
+		s = *candidate
+	}
 	if err != nil {
 		if errors.Is(err, ErrPolicy) || os.IsNotExist(err) {
 			result.Status = "policy_denied"
@@ -295,7 +317,7 @@ func (d *Docker) RunCommand(ctx context.Context, r Request, authorize func(conte
 	if e = authorize(call); e != nil {
 		return result, e
 	}
-	payload, _ := json.Marshal(Payload{r, s})
+	payload, _ := json.Marshal(Payload{Request: r, Snapshot: s, Profile: profile})
 	wire, e := dockerCall(call, bytes.NewReader(payload), MaxWire, "start", "-a", "-i", id)
 	if call.Err() != nil {
 		result.Status = "timeout"

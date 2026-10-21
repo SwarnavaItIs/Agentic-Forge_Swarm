@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"forgeswarm/api/worker/v1"
+	"forgeswarm/internal/agent"
 	"forgeswarm/internal/broker"
 	"forgeswarm/internal/config"
 	"forgeswarm/internal/execution"
@@ -50,6 +51,9 @@ func Handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 	HandleWithSandbox(ctx, client, b, c, instance, msg, logger, nil)
 }
 func HandleWithSandbox(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Broker, c config.Distributed, instance uuid.UUID, msg jetstream.Msg, logger *slog.Logger, driver *sandbox.Docker) {
+	handle(ctx, client, b, c, instance, msg, logger, driver, nil)
+}
+func handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Broker, c config.Distributed, instance uuid.UUID, msg jetstream.Msg, logger *slog.Logger, driver *sandbox.Docker, runtime *AgentRuntime) {
 	n, err := execution.DecodeNotification(msg.Data())
 	if err != nil {
 		call, done := context.WithTimeout(ctx, c.RPCTimeout)
@@ -115,8 +119,21 @@ func HandleWithSandbox(ctx context.Context, client workerv1.CoordinatorClient, b
 	}()
 	success := true
 	var sandboxResult *sandbox.Result
+	var agentResult *agent.Outcome
 	cleanupConfirmed := true
 	switch a.Kind {
+	case "agent_go":
+		cleanupConfirmed = false
+		if driver != nil && runtime != nil {
+			result, e := ExecuteAgent(execCtx, client, c, driver, runtime, a)
+			if e == nil {
+				agentResult = &result
+				cleanupConfirmed = true
+				success = result.Success()
+			} else {
+				logger.Error("agent_execution_interrupted", "attempt_id", a.Id, "error_class", "restart_from_pinned_base")
+			}
+		}
 	case "noop":
 	case "delay":
 		success = pause(execCtx, time.Duration(a.DelayMs)*time.Millisecond)
@@ -137,7 +154,7 @@ func HandleWithSandbox(ctx context.Context, client workerv1.CoordinatorClient, b
 	}
 	stopRenew()
 	<-renewDone
-	if a.Kind == "sandbox_go" && (!cleanupConfirmed || sandboxResult == nil) {
+	if (a.Kind == "sandbox_go" || a.Kind == "agent_go") && (!cleanupConfirmed || sandboxResult == nil && agentResult == nil) {
 		if cleanupConfirmed {
 			stopped()
 		}
@@ -155,7 +172,10 @@ func HandleWithSandbox(ctx context.Context, client workerv1.CoordinatorClient, b
 	}
 	for i := 0; i < 3; i++ {
 		call, done := context.WithTimeout(ctx, c.RPCTimeout)
-		if sandboxResult != nil {
+		if agentResult != nil {
+			wire, _ := json.Marshal(agentResult)
+			_, err = client.CompleteAgent(call, &workerv1.AgentOutcome{Attempt: owned, OutcomeJson: wire})
+		} else if sandboxResult != nil {
 			wire, _ := json.Marshal(sandboxResult)
 			_, err = client.CompleteSandbox(call, &workerv1.SandboxOutcome{Request: &workerv1.SandboxRequest{Attempt: owned, RequestId: sandbox.RequestID(uuid.MustParse(a.Id)).String()}, CommandResultJson: wire})
 		} else if success {
@@ -181,12 +201,18 @@ func Run(stop context.Context, client workerv1.CoordinatorClient, b *broker.Brok
 	return RunWithSandbox(stop, client, b, c, logger, nil)
 }
 func RunWithSandbox(stop context.Context, client workerv1.CoordinatorClient, b *broker.Broker, c config.Distributed, logger *slog.Logger, driver *sandbox.Docker) error {
+	return RunWithAgent(stop, client, b, c, logger, driver, nil)
+}
+func RunWithAgent(stop context.Context, client workerv1.CoordinatorClient, b *broker.Broker, c config.Distributed, logger *slog.Logger, driver *sandbox.Docker, runtime *AgentRuntime) error {
 	instance := uuid.New()
 	work, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	capabilities := []string{"noop", "delay"}
 	if driver != nil {
 		capabilities = append(capabilities, "sandbox_go")
+	}
+	if driver != nil && runtime != nil {
+		capabilities = append(capabilities, "agent_go")
 	}
 	workerID := ""
 	for {
@@ -285,7 +311,7 @@ func RunWithSandbox(stop context.Context, client workerv1.CoordinatorClient, b *
 					_ = m.NakWithDelay(time.Second)
 					return
 				}
-				HandleWithSandbox(work, client, b, c, instance, m, logger, driver)
+				handle(work, client, b, c, instance, m, logger, driver, runtime)
 			}(msg)
 		}
 		if batch.Error() != nil {

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"forgeswarm/api/worker/v1"
+	"forgeswarm/internal/agent"
 	"forgeswarm/internal/config"
 	"forgeswarm/internal/postgres"
 	"forgeswarm/internal/rpc"
@@ -52,6 +54,17 @@ func run(log *slog.Logger) error {
 	store, err := postgres.NewConfigured(pool, c.Limits, base.RecoveryPolicy)
 	if err != nil {
 		return err
+	}
+	if os.Getenv("AGENT_ENABLED") == "true" {
+		pricing, e := agent.LoadPricing(os.Getenv("AGENT_PRICING_FILE"))
+		if e != nil {
+			return e
+		}
+		if e = store.ConfigureAgent(pricing); e != nil {
+			return e
+		}
+	} else if v := os.Getenv("AGENT_ENABLED"); v != "" && v != "false" {
+		return errors.New("invalid AGENT_ENABLED")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

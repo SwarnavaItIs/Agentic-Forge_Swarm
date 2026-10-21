@@ -43,7 +43,7 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	api := httpapi.New(store, logger, cfg.RequestTimeout, cfg.ReadyTimeout)
+	api := httpapi.New(store, logger, cfg.RequestTimeout, cfg.ReadyTimeout).WithAgentCatalog(os.Getenv("AGENT_CATALOG"))
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler(), ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		ReadTimeout: cfg.ReadTimeout, WriteTimeout: cfg.WriteTimeout, IdleTimeout: cfg.IdleTimeout, MaxHeaderBytes: 16 << 10}
 	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

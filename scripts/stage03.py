@@ -283,7 +283,11 @@ def smoke(recovery=False):
                 record("killed worker lease failover" if killed else "paused worker lease failover and stale resume",recovered,{"observed_seconds":round(time.monotonic()-recovery_started,3)})
 
             if recovery:
-                retried,_=create("retry-wait-process-restart",[{"key":"a","kind":"delay","delay_ms":1000}])
+                # Leave a bounded but ample window for the real Docker
+                # inspect/psql/kill round trips. At 1s the task could already
+                # finish between observing its claim and killing its worker,
+                # so no RETRY_WAIT would exist to test. Assertions stay strict.
+                retried,_=create("retry-wait-process-restart",[{"key":"a","kind":"delay","delay_ms":30000}])
                 owner=running_owner(retried);stop(owner,killed=True);rid=str(uuid.UUID(retried["id"]))
                 dev.poll(lambda:sql(f"SELECT count(*) FROM tasks WHERE workflow_id='{rid}' AND status='RETRY_WAIT'")=="1","persisted RETRY_WAIT after worker kill")
                 for name in ["scheduler","scheduler_2"]:stop(name,killed=True)

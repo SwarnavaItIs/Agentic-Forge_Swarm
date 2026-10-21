@@ -369,8 +369,8 @@ func TestSQLConstraints(t *testing.T) {
 		// status values remain rejected by the persisted state constraint.
 		{`UPDATE workflows SET status='INVALID' WHERE id=$1`, "23514", []any{r.ID}},
 		{`UPDATE workflows SET request_hash='\x00' WHERE id=$1`, "23514", []any{r.ID}},
-		// Stage 05 intentionally admits v5. Version 6 remains unsupported.
-		{`UPDATE workflows SET request_schema_version=6 WHERE id=$1`, "23514", []any{r.ID}},
+		// Stage 06 intentionally admits v6. Version 7 remains unsupported.
+		{`UPDATE workflows SET request_schema_version=7 WHERE id=$1`, "23514", []any{r.ID}},
 		{`UPDATE workflows SET creation_key='invalid space' WHERE id=$1`, "23514", []any{r.ID}},
 		{`INSERT INTO workflows(id,name,status,version,creation_key,request_hash,request_schema_version) SELECT $1,name,status,version,creation_key,request_hash,request_schema_version FROM workflows WHERE id=$2`, "23505", []any{uuid.New(), r.ID}},
 		{`DELETE FROM workflows WHERE id=$1`, "23503", []any{r.ID}},

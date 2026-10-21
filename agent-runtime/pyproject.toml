@@ -1,0 +1,26 @@
+[project]
+name = "forgeswarm-agent-runtime"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = ["pydantic==2.12.3", "grpcio==1.76.0", "protobuf==6.33.5", "httpx==0.28.1"]
+
+[dependency-groups]
+dev = ["grpcio-tools==1.76.0", "pytest==8.4.2", "ruff==0.14.3", "mypy==1.18.2", "types-protobuf==6.32.1.20250918"]
+
+[tool.ruff]
+exclude = ["generated"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["forge_agent"]
+exclude = ["generated"]
+follow_imports = "silent"
+
+[[tool.mypy.overrides]]
+module = ["grpc", "grpc.*", "generated.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

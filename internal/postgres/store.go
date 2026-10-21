@@ -9,6 +9,7 @@ import (
 	"net"
 	"time"
 
+	"forgeswarm/internal/agent"
 	"forgeswarm/internal/execution"
 	"forgeswarm/internal/workflow"
 	"forgeswarm/migrations"
@@ -19,10 +20,11 @@ import (
 )
 
 type Store struct {
-	pool   *pgxpool.Pool
-	limits execution.Limits
-	policy execution.Policy
-	random func() float64
+	pool         *pgxpool.Pool
+	limits       execution.Limits
+	policy       execution.Policy
+	random       func() float64
+	agentPricing *agent.Pricing
 }
 
 func New(pool *pgxpool.Pool) *Store {
@@ -187,7 +189,7 @@ func (s *Store) Create(ctx context.Context, key string, in workflow.CreateInput)
 				return workflow.Receipt{}, err
 			}
 			taskIDs[task.Key] = taskID
-			_, err = tx.Exec(ctx, `INSERT INTO tasks(id,workflow_id,task_key,position,kind,delay_ms,status,max_attempts,deadline_at,sandbox_input) VALUES($1,$2,$3,$4,$5,$6,'PENDING',$7,$8,$9)`, taskID, id, task.Key, position, task.Kind, task.DelayMS, maxAttempts, taskDeadline, task.Sandbox)
+			_, err = tx.Exec(ctx, `INSERT INTO tasks(id,workflow_id,task_key,position,kind,delay_ms,status,max_attempts,deadline_at,sandbox_input,agent_input) VALUES($1,$2,$3,$4,$5,$6,'PENDING',$7,$8,$9,$10)`, taskID, id, task.Key, position, task.Kind, task.DelayMS, maxAttempts, taskDeadline, task.Sandbox, task.Agent)
 			if err != nil {
 				return workflow.Receipt{}, classify(err)
 			}
@@ -329,7 +331,9 @@ func (s *Store) Ready(ctx context.Context) error {
 		FROM workflows w LEFT JOIN tasks t ON t.workflow_id=w.id LEFT JOIN workflow_events e ON e.workflow_id=w.id LEFT JOIN task_dependencies d ON d.workflow_id=w.id
 		LEFT JOIN task_attempts a ON a.id=t.current_attempt_id LEFT JOIN outbox o ON o.task_id=t.id
 		LEFT JOIN sandbox_commands sc ON sc.attempt_id=a.id LEFT JOIN sandbox_executions se ON se.attempt_id=a.id
-		LEFT JOIN sandbox_artifacts sa ON sa.attempt_id=a.id WHERE false`)
+		LEFT JOIN sandbox_artifacts sa ON sa.attempt_id=a.id
+		LEFT JOIN agent_sessions ag ON ag.attempt_id=a.id LEFT JOIN agent_steps ast ON ast.attempt_id=a.id
+		LEFT JOIN model_calls mc ON mc.attempt_id=a.id WHERE false`)
 	if err != nil {
 		return classify(err)
 	}

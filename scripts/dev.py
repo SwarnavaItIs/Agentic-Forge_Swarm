@@ -40,6 +40,7 @@ def sanitize(text):
     text = re.sub(r"postgres(?:ql)?://[^\s\"']+", "[REDACTED_DATABASE_URL]", text)
     text = re.sub(r"(?i)(password\s*=\s*)([^\s\"']+)", r"\1[REDACTED]", text)
     text = re.sub(r"(?i)(Bearer\s+)[A-Za-z0-9._:-]+",r"\1[REDACTED]",text)
+    text = re.sub(r"(?i)((?:AGENT_RUNTIME_TOKEN|TEST_AGENT_RUNTIME_TOKEN|OPENAI_API_KEY|NATS_TOKEN|WORKER_TOKEN)=)[^\s\"',]+", r"\1[REDACTED]", text)
     return text[-131072:]
 
 
@@ -261,9 +262,9 @@ def smoke():
 
 
 def fingerprint():
-    paths = [ROOT / f for f in ["go.mod", "go.sum", ".env.example", ".gitignore", "Makefile", "compose.yaml"]]
-    for folder in ["cmd", "internal", "migrations", "tests", "scripts", ".github","api","config"]:
-        paths.extend(p for p in (ROOT / folder).rglob("*") if p.is_file() and "__pycache__" not in p.parts)
+    paths = [ROOT / f for f in ["go.mod", "go.sum", ".env.example", ".gitignore", ".gitattributes", "Makefile", "compose.yaml"]]
+    for folder in ["cmd", "internal", "migrations", "tests", "scripts", ".github","api","config","agent-runtime"]:
+        paths.extend(p for p in (ROOT / folder).rglob("*") if p.is_file() and not any(part in {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".venv", ".cache"} or part.startswith("pytest-cache-files-") for part in p.parts))
     digest = hashlib.sha256()
     for path in sorted(paths):
         if path.is_file():
@@ -326,6 +327,9 @@ def fmt_check():
 
 def main():
     global RECORD
+    if len(sys.argv)>1 and sys.argv[1] in {"verify-stage-06","agent-test","agent-demo-fixture","agent-runtime-prepare"}:
+        import stage06
+        stage06.command(sys.argv[1]);return
     os.chdir(ROOT)
     (ROOT / ".cache/go-tmp").mkdir(parents=True, exist_ok=True)
     command = sys.argv[1] if len(sys.argv) == 2 else "help"
@@ -350,7 +354,24 @@ def main():
         stage02.verify()
         return
     if command == "help":
-        print("Stage 05: verify-stage-05; sandbox-prepare; sandbox-fixture / sandbox-demo; sandbox-test.\n"
+        print("Stage 06: agent-demo-fixture; agent-runtime-prepare; agent-test; verify-stage-06 (includes Stage 05/04 real regressions).\n"
+              "Python 3.12.10 + uv 0.13.0; locked dependencies, lint/type/pytest and reproducible Go/Python protobuf.\n"
+              "Operator: go run ./cmd/agent-register -repository PATH -revision FULL_COMMIT; catalog/snapshot defaults under .cache.\n"
+              "POST /v1/jobs + Idempotency-Key: schema_version=1, repository_id, base_revision, task_description, policy=controlled-go-v1, budget=small-v1, test_profile=sum-v1.\n"
+              "Only sum.go is writable, via exact conditional replacement. Tree/read/literal search/status/diff are bounded; no model shell.\n"
+              "Immutable helper evaluates Add(int,int) against six cases outside writable agent source. Final text cannot establish success.\n"
+              "sum-v1 requires one pure Add arithmetic expression; imports/init/calls/extra declarations and compiler directives are denied.\n"
+              "Limits: 12 model turns across task attempts, 24 tools/attempt, 2 denials, 2 schema repairs/429 retries; 200000 tokens/task.\n"
+              "Per attempt wall 90s, fixed overall job task deadline 120s; context 12 KiB, observation 4 KiB, patch 8 KiB, output 1024 tokens.\n"
+              "Pricing config pins dated input/output estimates and maximum (default USD 0.50); reserve before call, unknown usage retains estimate.\n"
+              "Retries start pinned base and retain prior budget charges. Interrupted edits are never blindly reapplied.\n"
+              "Migrate 00006 and upgrade all roles together; legacy normalization v1-v5 is preserved.\n"
+              "Runtime: local separately confined read-only nonroot Docker image, no repository mounts/socket/DB/broker keys; loopback authenticated RPC only.\n"
+              "Use scripts/stage06.py runtime(image) as executable TEST/DEMO configuration reference; AGENT_PROVIDER=scripted_TEST_DEMO needs AGENT_TEST_DEMO=true.\n"
+              "Worker/coordinator AGENT_ENABLED=true; API AGENT_CATALOG; coordinator AGENT_PRICING_FILE; worker runtime address/token and explicit AGENT_INSECURE_LOCAL=true.\n"
+              "OpenAI adapter defaults disabled. Live runtime needs its own OPENAI_API_KEY, AGENT_PROVIDER=openai, AGENT_LIVE_ENABLED=true and existing explicit spending authorization.\n"
+              "Scripted evidence proves deterministic infrastructure, not live model capability/success rates. No paid calls in verification.\n"
+              "Stage 05: verify-stage-05; sandbox-prepare; sandbox-fixture / sandbox-demo; sandbox-test.\n"
               "Vetted small dependency-free Go 1.26.3 fixtures, Linux cgroup v2 Docker; no host repository commands.\n"
               "sandbox-fixture registers the bundled demo; custom inputs: go run ./cmd/sandbox-fixture -repository PATH -revision FULL_COMMIT.\n"
               "Set SANDBOX_ENABLED=true, stable SANDBOX_INSTALLATION_ID, registry/helper paths before run-worker.\n"
