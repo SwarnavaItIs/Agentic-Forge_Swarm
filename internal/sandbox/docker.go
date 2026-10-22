@@ -242,7 +242,7 @@ func (d *Docker) RunCommand(ctx context.Context, r Request, authorize func(conte
 // options. It uses the identical kernel policy, fences, watchdog and teardown.
 // The content-addressed candidate stays in memory; no host checkout is executed.
 func (d *Docker) RunSnapshot(ctx context.Context, r Request, s Snapshot, profile string, authorize func(context.Context) error) (Result, error) {
-	if profile != "sum-v1" {
+	if !ProtectedProfile(profile) {
 		return Result{}, ErrPolicy
 	}
 	_, id, err := SnapshotBytes(s)

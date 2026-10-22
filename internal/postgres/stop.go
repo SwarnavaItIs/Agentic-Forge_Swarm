@@ -22,6 +22,9 @@ func (s *Store) AuthorizeTool(ctx context.Context, worker string, instance, id u
 	if !live {
 		return a, execution.ErrStale
 	}
+	if err = s.roleLive(ctx, tx, a); err != nil {
+		return a, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return a, classify(err)
 	}

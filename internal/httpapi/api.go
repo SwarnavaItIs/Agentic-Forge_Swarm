@@ -29,6 +29,9 @@ type API struct {
 	requestTimeout, readyTimeout time.Duration
 	stopping                     atomic.Bool
 	agentCatalog                 string
+	collaborationRegistry        string
+	correctionRounds             int
+	streams                      atomic.Int32
 }
 
 func New(service workflow.Service, logger *slog.Logger, requestTimeout, readyTimeout time.Duration) *API {
@@ -46,6 +49,8 @@ type responseWriter struct {
 	http.ResponseWriter
 	status int
 }
+
+func (w *responseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (w *responseWriter) WriteHeader(status int) {
 	if w.status != 0 {
@@ -65,7 +70,13 @@ func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health/live", a.method(http.MethodGet, a.live))
 	mux.HandleFunc("/health/ready", a.method(http.MethodGet, a.ready))
-	mux.HandleFunc("/v1/workflows", a.method(http.MethodPost, a.create))
+	mux.HandleFunc("/v1/workflows", a.index)
+	mux.HandleFunc("/v1/projects", a.method(http.MethodPost, a.projectCreate))
+	mux.HandleFunc("/v1/projects/{id}", a.method(http.MethodGet, a.project))
+	mux.HandleFunc("/v1/projects/{id}/plans/{version}/finalize", a.method(http.MethodPost, a.finalize))
+	mux.HandleFunc("/v1/workflows/{id}/summary", a.method(http.MethodGet, a.usage))
+	mux.HandleFunc("/v1/workflows/{id}/candidates", a.method(http.MethodGet, a.candidates))
+	mux.HandleFunc("/v1/workflows/{id}/stream", a.method(http.MethodGet, a.stream))
 	mux.HandleFunc("/v1/jobs", a.method(http.MethodPost, a.job))
 	mux.HandleFunc("/v1/workflows/{id}", a.method(http.MethodGet, a.details))
 	mux.HandleFunc("/v1/workflows/{id}/cancel", a.method(http.MethodPost, a.cancel))
@@ -79,7 +90,11 @@ func (a *API) Handler() http.Handler {
 		start := time.Now()
 		meta := &requestInfo{id: uuid.NewString()}
 		r = r.WithContext(context.WithValue(r.Context(), infoKey{}, meta))
-		ctx, cancel := context.WithTimeout(r.Context(), a.requestTimeout)
+		timeout := a.requestTimeout
+		if strings.HasSuffix(r.URL.Path, "/stream") {
+			timeout = 35 * time.Second
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 		r = r.WithContext(ctx)
 		w.Header().Set("X-Request-ID", meta.id)

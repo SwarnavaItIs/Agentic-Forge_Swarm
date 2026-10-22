@@ -3,6 +3,9 @@ package forgeswarm.agent.v1;
 option go_package = "forgeswarm/api/agent/v1;agentv1";
 // JSON bodies are versioned strict Pydantic/Go schemas, capped at 32 KiB.
 // No paths, endpoints, credentials or executable code are transport features.
-service Runtime { rpc NextAction(NextRequest) returns (NextReply); }
+service Runtime {
+ rpc NextAction(NextRequest) returns (NextReply);
+ rpc Collaborate(NextRequest) returns (NextReply);
+}
 message NextRequest { bytes context_json = 1; }
 message NextReply { bytes response_json = 1; }

@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
+	"forgeswarm/internal/agent"
 	"forgeswarm/internal/config"
 	"forgeswarm/internal/httpapi"
 	"forgeswarm/internal/postgres"
@@ -43,8 +45,38 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	if os.Getenv("AGENT_ENABLED") == "true" {
+		pricing, e := agent.LoadPricing(os.Getenv("AGENT_PRICING_FILE"))
+		if e != nil {
+			return e
+		}
+		if e = store.ConfigureAgent(pricing); e != nil {
+			return e
+		}
+	}
 	api := httpapi.New(store, logger, cfg.RequestTimeout, cfg.ReadyTimeout).WithAgentCatalog(os.Getenv("AGENT_CATALOG"))
-	server := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler(), ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+	var handler http.Handler = api.Handler()
+	if os.Getenv("COLLAB_ENABLED") == "true" || os.Getenv("WEB_DIR") != "" {
+		if !httpapi.LoopbackAddress(cfg.HTTPAddr) {
+			return errors.New("dashboard and collaboration controls require local loopback")
+		}
+		rounds := 2
+		if value := os.Getenv("COLLAB_MAX_ROUNDS"); value != "" {
+			rounds, err = strconv.Atoi(value)
+			if err != nil || rounds < 0 || rounds > 2 {
+				return errors.New("COLLAB_MAX_ROUNDS must be 0-2")
+			}
+		}
+		registry := os.Getenv("SANDBOX_FIXTURE_REGISTRY")
+		if registry == "" {
+			registry = ".cache/sandbox-fixtures"
+		}
+		if os.Getenv("COLLAB_ENABLED") == "true" {
+			api.WithCollaboration(registry, rounds)
+		}
+		handler = httpapi.PrivateUI(api.Handler(), os.Getenv("WEB_DIR"))
+	}
+	server := &http.Server{Addr: cfg.HTTPAddr, Handler: handler, ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		ReadTimeout: cfg.ReadTimeout, WriteTimeout: cfg.WriteTimeout, IdleTimeout: cfg.IdleTimeout, MaxHeaderBytes: 16 << 10}
 	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

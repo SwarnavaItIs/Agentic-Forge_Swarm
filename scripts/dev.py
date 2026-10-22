@@ -19,6 +19,11 @@ import urllib.error
 import urllib.request
 import uuid
 
+# Browser/test reporters contain Unicode; Windows redirected stdout may otherwise
+# default to cp1252 and turn a passing command into a reporting exception.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = Path(__file__).resolve().parent.parent
 IMAGE = "postgres:17.11-bookworm@sha256:66aafa11cf15800a3c94763f7e11d1e7b2e37e5e84bc4ce027cb6e1e4bfaf4df"
 GO_IMAGE = "golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b"
@@ -263,8 +268,8 @@ def smoke():
 
 def fingerprint():
     paths = [ROOT / f for f in ["go.mod", "go.sum", ".env.example", ".gitignore", ".gitattributes", "Makefile", "compose.yaml"]]
-    for folder in ["cmd", "internal", "migrations", "tests", "scripts", ".github","api","config","agent-runtime"]:
-        paths.extend(p for p in (ROOT / folder).rglob("*") if p.is_file() and not any(part in {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".venv", ".cache"} or part.startswith("pytest-cache-files-") for part in p.parts))
+    for folder in ["cmd", "internal", "migrations", "tests", "scripts", ".github","api","config","agent-runtime","web"]:
+        paths.extend(p for p in (ROOT / folder).rglob("*") if p.is_file() and not any(part in {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".venv", ".cache", "node_modules", "dist", "test-results", "playwright-report"} or part.startswith("pytest-cache-files-") for part in p.parts))
     digest = hashlib.sha256()
     for path in sorted(paths):
         if path.is_file():
@@ -327,6 +332,9 @@ def fmt_check():
 
 def main():
     global RECORD
+    if len(sys.argv)>1 and sys.argv[1] in {"verify-stage-07","collaboration-test","collaboration-fixture","dashboard-test"}:
+        import stage07
+        stage07.command(sys.argv[1]);return
     if len(sys.argv)>1 and sys.argv[1] in {"verify-stage-06","agent-test","agent-demo-fixture","agent-runtime-prepare"}:
         import stage06
         stage06.command(sys.argv[1]);return
@@ -354,7 +362,24 @@ def main():
         stage02.verify()
         return
     if command == "help":
-        print("Stage 06: agent-demo-fixture; agent-runtime-prepare; agent-test; verify-stage-06 (includes Stage 05/04 real regressions).\n"
+        print("Stage 07: collaboration-fixture; collaboration-test; dashboard-test; verify-stage-07 (includes full Stage 06/05/04 gate).\n"
+              "POST /v1/projects + Idempotency-Key: same controlled job fields as Stage 06, test_profile=math-v1. Operator CLI: agent-register -profile math-v1.\n"
+              "COLLAB_ENABLED=true; COLLAB_MAX_ROUNDS=0..2 (default 2); AGENT_ENABLED=true on API, coordinator and scheduler; worker needs configured runtime.\n"
+              "Migration 00007 is additive and normalization v1-v6 stays frozen; upgrade all roles together.\n"
+              "Planner is read-only; strict plan caps 4 developers/8 edges, declared agent_go capability, file scopes and fixed profiles. Trusted finalizer inserts mandatory integrate/review tasks in a new child DAG.\n"
+              "POST /v1/projects/{id}/plans/{version}/finalize + {digest}: same version/digest returns the existing child; different content requires a new immutable correction version. Scheduler recovers finalization automatically.\n"
+              "Developers use private in-memory snapshots and confined Docker tests. Dependent work receives a deterministic merge of exact accepted predecessor artifacts.\n"
+              "math-v1: add.go/Add(a,b)=a+b, double.go/Double(a)=2*a, score.go/Score(a,b)=3*a+b. Only one pure arithmetic function per file, 4 KiB total/8 files.\n"
+              "Conservative three-way enclosing-hunk merge rejects overlapping edits/Git-style conflicts; no host patch/Git execution and no silent winner. Combined tests can reject semantic conflicts despite separate profile passes.\n"
+              "Review is read-only and candidate-bound. Rejection starts a fresh immutable plan/execution version; max corrections default 2. Conflicts/test failures and exhausted repairs end NEEDS_HUMAN.\n"
+              "One pinned project allowance across roles/rounds: dated configured maximum estimate, 96 calls, 800000 tokens, 10m deadline; task/attempt limits also apply. Unknown usage retains reservations.\n"
+              "GET /v1/workflows?after=UUID&limit=20; /v1/workflows/{id}/summary and /candidates; GET /v1/projects/{id} exposes versions and aggregate state.\n"
+              "Dashboard: Node 24.16.0, npm ci --prefix web --ignore-scripts; npm run dev --prefix web (127.0.0.1:5173) or build and set WEB_DIR=web/dist on the local API.\n"
+              "Dashboard/control hosting is local loopback only, with host/origin checks. No unauthenticated public controls or automatic GitHub publication.\n"
+              "GET /v1/workflows/{id}/stream supports Last-Event-ID or initial ?after=sequence. At-least-once UI delivery; deduplicate by workflow/sequence.\n"
+              "SSE: durable pages <=32, max 64 clients, 5s heartbeat, 1s slow-writer deadline, 30s reconnect rotation. Retention gaps return event_retention_gap or explicit stream event; refresh detail/cursor. Disconnect never cancels execution.\n"
+              "Frontend retains 100 escaped events; cancellation uses REST and reports pending until persisted state/cleanup settles. No untrusted HTML rendering.\n"
+              "Stage 06: agent-demo-fixture; agent-runtime-prepare; agent-test; verify-stage-06 (includes Stage 05/04 real regressions).\n"
               "Python 3.12.10 + uv 0.13.0; locked dependencies, lint/type/pytest and reproducible Go/Python protobuf.\n"
               "Operator: go run ./cmd/agent-register -repository PATH -revision FULL_COMMIT; catalog/snapshot defaults under .cache.\n"
               "POST /v1/jobs + Idempotency-Key: schema_version=1, repository_id, base_revision, task_description, policy=controlled-go-v1, budget=small-v1, test_profile=sum-v1.\n"

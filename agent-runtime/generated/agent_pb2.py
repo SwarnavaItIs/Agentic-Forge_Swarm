@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0b\x61gent.proto\x12\x13\x66orgeswarm.agent.v1\"#\n\x0bNextRequest\x12\x14\n\x0c\x63ontext_json\x18\x01 \x01(\x0c\"\"\n\tNextReply\x12\x15\n\rresponse_json\x18\x01 \x01(\x0c\x32Y\n\x07Runtime\x12N\n\nNextAction\x12 .forgeswarm.agent.v1.NextRequest\x1a\x1e.forgeswarm.agent.v1.NextReplyB!Z\x1f\x66orgeswarm/api/agent/v1;agentv1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0b\x61gent.proto\x12\x13\x66orgeswarm.agent.v1\"#\n\x0bNextRequest\x12\x14\n\x0c\x63ontext_json\x18\x01 \x01(\x0c\"\"\n\tNextReply\x12\x15\n\rresponse_json\x18\x01 \x01(\x0c\x32\xaa\x01\n\x07Runtime\x12N\n\nNextAction\x12 .forgeswarm.agent.v1.NextRequest\x1a\x1e.forgeswarm.agent.v1.NextReply\x12O\n\x0b\x43ollaborate\x12 .forgeswarm.agent.v1.NextRequest\x1a\x1e.forgeswarm.agent.v1.NextReplyB!Z\x1f\x66orgeswarm/api/agent/v1;agentv1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -36,6 +36,6 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_NEXTREQUEST']._serialized_end=71
   _globals['_NEXTREPLY']._serialized_start=73
   _globals['_NEXTREPLY']._serialized_end=107
-  _globals['_RUNTIME']._serialized_start=109
-  _globals['_RUNTIME']._serialized_end=198
+  _globals['_RUNTIME']._serialized_start=110
+  _globals['_RUNTIME']._serialized_end=280
 # @@protoc_insertion_point(module_scope)

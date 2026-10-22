@@ -39,9 +39,19 @@ func (j Job) Valid() bool {
 	return j.SchemaVersion == 1 && digest.MatchString(j.RepositoryID) && revision.MatchString(j.BaseRevision) && utf8.ValidString(j.TaskDescription) && len(strings.TrimSpace(j.TaskDescription)) > 0 && len(j.TaskDescription) <= 2000 && !strings.ContainsRune(j.TaskDescription, 0) && j.Policy == "controlled-go-v1" && j.Budget == "small-v1" && j.TestProfile == Profile
 }
 
-type Input struct{ Job }
+type Input struct {
+	Job
+	Role *RoleSpec `json:"role,omitempty"`
+}
 
-func (in Input) Valid() bool { return in.Job.Valid() }
+func (in Input) Valid() bool {
+	if in.Role == nil {
+		return in.Job.Valid()
+	}
+	j := in.Job
+	j.TestProfile = Profile
+	return in.TestProfile == MathProfile && j.Valid() && in.Role.Valid()
+}
 func (in Input) Sandbox() sandbox.Input {
 	return sandbox.Input{SchemaVersion: 1, FixtureID: in.RepositoryID, Command: "test"}
 }
@@ -133,16 +143,20 @@ type Event struct {
 	Reply          *Reply `json:"reply,omitempty"`
 }
 type Outcome struct {
-	Status       string          `json:"status"`
-	Candidate    string          `json:"candidate_sha256"`
-	Base         string          `json:"base_sha256"`
-	BaseRevision string          `json:"base_revision"`
-	TestID       string          `json:"test_id"`
-	TestDigest   string          `json:"test_sha256"`
-	Patch        []byte          `json:"patch"`
-	Test         *sandbox.Result `json:"test,omitempty"`
+	Status        string          `json:"status"`
+	Candidate     string          `json:"candidate_sha256"`
+	Base          string          `json:"base_sha256"`
+	BaseRevision  string          `json:"base_revision"`
+	TestID        string          `json:"test_id"`
+	TestDigest    string          `json:"test_sha256"`
+	Patch         []byte          `json:"patch"`
+	Test          *sandbox.Result `json:"test,omitempty"`
+	Collaboration *RoleOutcome    `json:"collaboration,omitempty"`
 }
 
 func (o Outcome) Success() bool {
+	if o.Collaboration != nil {
+		return o.Status == "accepted" && ValidDigest(o.Candidate) && ValidDigest(o.Base)
+	}
 	return o.Status == "accepted" && ValidDigest(o.Candidate) && o.Candidate != o.Base && len(o.Patch) > 0 && len(o.Patch) <= sandbox.MaxArtifact && o.Test != nil && o.Test.Valid() && o.Test.Status == "exited" && o.Test.ExitCode == 0 && o.BaseRevision == o.Test.BaseRevision && o.TestDigest == JSONSHA(o.Test)
 }

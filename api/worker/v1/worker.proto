@@ -5,6 +5,7 @@ import "google/protobuf/timestamp.proto";
 
 // Worker identity comes from authenticated metadata, never a request worker_id.
 service Coordinator {
+	rpc PrepareRole(AttemptRequest) returns (RoleInput);
   rpc RegisterWorker(RegisterRequest) returns (Worker);
   rpc HeartbeatWorker(InstanceRequest) returns (Worker);
   rpc SetDraining(DrainRequest) returns (Worker);
@@ -20,6 +21,7 @@ service Coordinator {
   rpc AgentEvent(AgentEventRequest) returns (Attempt);
   rpc CompleteAgent(AgentOutcome) returns (Attempt);
 }
+message RoleInput { bytes work_json = 1; }
 message RegisterRequest { string instance_id = 1; repeated string capabilities = 2; int32 capacity = 3; }
 message InstanceRequest { string instance_id = 1; }
 message DrainRequest { string instance_id = 1; bool draining = 2; }

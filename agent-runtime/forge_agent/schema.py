@@ -86,6 +86,118 @@ class Proposal(Strict):
         return value
 
 
+class RoleSpec(Strict):
+    schema_version: Literal[1]
+    name: Literal["planner", "developer", "integration", "reviewer"]
+    version: Annotated[int, Field(ge=1, le=3)]
+    task_key: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")]
+    write_scope: Annotated[
+        list[Literal["add.go", "double.go", "score.go"]], Field(max_length=3)
+    ]
+    test_profile: Literal["add-v1", "double-v1", "score-v1", "math-v1"]
+    max_calls: Annotated[int, Field(ge=1, le=8)]
+
+
+class PlanTask(Strict):
+    key: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")]
+    description: Annotated[str, Field(min_length=1, max_length=500)]
+    acceptance_criteria: Annotated[
+        list[Annotated[str, Field(min_length=1, max_length=200)]],
+        Field(min_length=1, max_length=3),
+    ]
+    depends_on: Annotated[list[str], Field(max_length=4)]
+    required_capabilities: list[Literal["agent_go"]]
+    write_scope: Annotated[
+        list[Literal["add.go", "double.go", "score.go"]],
+        Field(min_length=1, max_length=3),
+    ]
+    test_profile: Literal["add-v1", "double-v1", "score-v1", "math-v1"]
+    max_calls: Annotated[int, Field(ge=1, le=8)]
+
+
+class Plan(Strict):
+    schema_version: Literal[1]
+    repository_id: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    base_revision: Annotated[str, Field(pattern=r"^([0-9a-f]{40}|[0-9a-f]{64})$")]
+    policy: Literal["collaborative-go-v1"]
+    tasks: Annotated[list[PlanTask], Field(min_length=1, max_length=4)]
+    integration_profile: Literal["math-v1"]
+    review_required: Literal[True]
+
+
+class Finding(Strict):
+    severity: Literal["info", "warning", "error"]
+    file: Literal["add.go", "double.go", "score.go"]
+    line: Annotated[int, Field(ge=1, le=200)]
+    rationale: Annotated[str, Field(min_length=1, max_length=500)]
+
+
+class Review(Strict):
+    schema_version: Literal[1]
+    candidate_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    decision: Literal["pass", "reject"]
+    findings: Annotated[list[Finding], Field(max_length=8)]
+
+
+class MathPatch(Patch):
+    path: Literal["add.go", "double.go", "score.go"]  # type: ignore[assignment]
+
+
+class MathTest(Strict):
+    profile: Literal["add-v1", "double-v1", "score-v1", "math-v1"]
+
+
+class MathPatchAction(Strict):
+    schema_version: Literal[1]
+    id: str
+    tool: Literal["apply_patch"]
+    args: MathPatch
+
+
+class MathTestAction(Strict):
+    schema_version: Literal[1]
+    id: str
+    tool: Literal["run_test_profile"]
+    args: MathTest
+
+
+class PlanAction(Strict):
+    schema_version: Literal[1]
+    id: str
+    tool: Literal["final_plan"]
+    args: Plan
+
+
+class ReviewAction(Strict):
+    schema_version: Literal[1]
+    id: str
+    tool: Literal["final_review"]
+    args: Review
+
+
+CollabAction = Annotated[
+    InspectAction
+    | ReadAction
+    | SearchAction
+    | MathPatchAction
+    | MathTestAction
+    | PlanAction
+    | ReviewAction,
+    Field(discriminator="tool"),
+]
+
+
+class CollabProposal(Strict):
+    action: CollabAction
+
+    @field_validator("action")
+    @classmethod
+    def valid_id(cls, value: CollabAction) -> CollabAction:
+        if UUID(value.id).int == 0:
+            raise ValueError("nonzero action identity required")
+        return value
+
+
 class Next(Strict):
     schema_version: Literal[1]
     attempt_id: str
@@ -112,6 +224,13 @@ class Next(Strict):
         return value
 
 
+class RoleNext(Strict):
+    next: Next
+    role: RoleSpec
+    repository_id: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    base_revision: Annotated[str, Field(pattern=r"^([0-9a-f]{40}|[0-9a-f]{64})$")]
+
+
 class Reply(Strict):
     status: Literal[
         "ok",
@@ -121,7 +240,7 @@ class Reply(Strict):
         "rate_limited",
         "provider_error",
     ]
-    action: Action | None = None
+    action: Action | CollabAction | None = None
     provider: str
     model: str
     request_id: str = ""
@@ -144,3 +263,11 @@ def parse_proposal(raw: str) -> Proposal:
     if len(raw.encode()) > 16384:
         raise ValueError("response ceiling")
     return Proposal.model_validate(json.loads(raw, object_pairs_hook=unique_object))
+
+
+def parse_collaboration(raw: str) -> CollabProposal:
+    if len(raw.encode()) > 16384:
+        raise ValueError("response ceiling")
+    return CollabProposal.model_validate(
+        json.loads(raw, object_pairs_hook=unique_object)
+    )

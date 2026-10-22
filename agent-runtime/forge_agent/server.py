@@ -7,7 +7,7 @@ from typing import Any
 import grpc
 
 from forge_agent.provider import Budget, Disabled, OpenAI, Provider, ScriptedDemo
-from forge_agent.schema import Next, unique_object
+from forge_agent.schema import Next, RoleNext, unique_object
 from generated import agent_pb2, agent_pb2_grpc
 
 
@@ -19,6 +19,12 @@ class Runtime(agent_pb2_grpc.RuntimeServicer):
         self.slots = asyncio.Semaphore(2)
 
     async def NextAction(self, request: Any, context: Any) -> Any:
+        return await self._next(request, context, False)
+
+    async def Collaborate(self, request: Any, context: Any) -> Any:
+        return await self._next(request, context, True)
+
+    async def _next(self, request: Any, context: Any, collaboration: bool) -> Any:
         values = [v for k, v in context.invocation_metadata() if k == "authorization"]
         if len(values) != 1 or not hmac.compare_digest(
             values[0], "Bearer " + self.token
@@ -34,7 +40,7 @@ class Runtime(agent_pb2_grpc.RuntimeServicer):
         try:
             if len(request.context_json) > 32768:
                 raise ValueError("payload ceiling")
-            value = Next.model_validate(
+            value = (RoleNext if collaboration else Next).model_validate(
                 json.loads(request.context_json, object_pairs_hook=unique_object)
             )
         except (ValueError, RecursionError):
@@ -45,7 +51,12 @@ class Runtime(agent_pb2_grpc.RuntimeServicer):
             async with asyncio.timeout(max(0.001, context.time_remaining())):
                 reply = await self.provider.generate(
                     value,
-                    Budget(value.max_output_tokens, min(9.5, context.time_remaining())),
+                    Budget(
+                        value.next.max_output_tokens
+                        if isinstance(value, RoleNext)
+                        else value.max_output_tokens,
+                        min(9.5, context.time_remaining()),
+                    ),
                 )
                 wire = reply.model_dump_json().encode()
                 if len(wire) > 32768:

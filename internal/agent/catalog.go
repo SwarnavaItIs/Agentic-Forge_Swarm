@@ -18,6 +18,12 @@ type Registration struct {
 }
 
 func Register(ctx context.Context, registry, catalog, repository, rev string) (Registration, error) {
+	return RegisterProfile(ctx, registry, catalog, repository, rev, Profile)
+}
+func RegisterProfile(ctx context.Context, registry, catalog, repository, rev, profile string) (Registration, error) {
+	if profile != Profile && profile != MathProfile {
+		return Registration{}, sandbox.ErrPolicy
+	}
 	id, err := sandbox.RegisterGit(ctx, registry, repository, rev)
 	if err != nil {
 		return Registration{}, err
@@ -34,10 +40,10 @@ func Register(ctx context.Context, registry, catalog, repository, rev string) (R
 	// This first controlled profile evaluates a single dependency-free function.
 	// New profiles require an operator-authored immutable evaluator, not a model
 	// command or tests from the writable source tree.
-	if !strings.HasPrefix(string(s.Files["go.mod"]), "module fixture\n") || len(s.Files["sum.go"]) == 0 {
+	if !strings.HasPrefix(string(s.Files["go.mod"]), "module fixture\n") || profile == Profile && len(s.Files["sum.go"]) == 0 || profile == MathProfile && !ControlledMath(s) {
 		return Registration{}, sandbox.ErrPolicy
 	}
-	r := Registration{id, rev, Profile}
+	r := Registration{id, rev, profile}
 	body, _ := json.Marshal(r)
 	if err = os.MkdirAll(catalog, 0700); err != nil {
 		return r, err
@@ -84,7 +90,7 @@ func Lookup(catalog, id string) (Registration, error) {
 	}
 	defer f.Close()
 	b, err := io.ReadAll(io.LimitReader(f, 1025))
-	if err != nil || sandbox.Decode(b, &r, 1024) != nil || r.RepositoryID != id || !revision.MatchString(r.BaseRevision) || r.TestProfile != Profile {
+	if err != nil || sandbox.Decode(b, &r, 1024) != nil || r.RepositoryID != id || !revision.MatchString(r.BaseRevision) || (r.TestProfile != Profile && r.TestProfile != MathProfile) {
 		return r, sandbox.ErrPolicy
 	}
 	return r, nil

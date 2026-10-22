@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Runtime_NextAction_FullMethodName = "/forgeswarm.agent.v1.Runtime/NextAction"
+	Runtime_NextAction_FullMethodName  = "/forgeswarm.agent.v1.Runtime/NextAction"
+	Runtime_Collaborate_FullMethodName = "/forgeswarm.agent.v1.Runtime/Collaborate"
 )
 
 // RuntimeClient is the client API for Runtime service.
@@ -30,6 +31,7 @@ const (
 // No paths, endpoints, credentials or executable code are transport features.
 type RuntimeClient interface {
 	NextAction(ctx context.Context, in *NextRequest, opts ...grpc.CallOption) (*NextReply, error)
+	Collaborate(ctx context.Context, in *NextRequest, opts ...grpc.CallOption) (*NextReply, error)
 }
 
 type runtimeClient struct {
@@ -50,6 +52,16 @@ func (c *runtimeClient) NextAction(ctx context.Context, in *NextRequest, opts ..
 	return out, nil
 }
 
+func (c *runtimeClient) Collaborate(ctx context.Context, in *NextRequest, opts ...grpc.CallOption) (*NextReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NextReply)
+	err := c.cc.Invoke(ctx, Runtime_Collaborate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RuntimeServer is the server API for Runtime service.
 // All implementations must embed UnimplementedRuntimeServer
 // for forward compatibility.
@@ -58,6 +70,7 @@ func (c *runtimeClient) NextAction(ctx context.Context, in *NextRequest, opts ..
 // No paths, endpoints, credentials or executable code are transport features.
 type RuntimeServer interface {
 	NextAction(context.Context, *NextRequest) (*NextReply, error)
+	Collaborate(context.Context, *NextRequest) (*NextReply, error)
 	mustEmbedUnimplementedRuntimeServer()
 }
 
@@ -70,6 +83,9 @@ type UnimplementedRuntimeServer struct{}
 
 func (UnimplementedRuntimeServer) NextAction(context.Context, *NextRequest) (*NextReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NextAction not implemented")
+}
+func (UnimplementedRuntimeServer) Collaborate(context.Context, *NextRequest) (*NextReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Collaborate not implemented")
 }
 func (UnimplementedRuntimeServer) mustEmbedUnimplementedRuntimeServer() {}
 func (UnimplementedRuntimeServer) testEmbeddedByValue()                 {}
@@ -110,6 +126,24 @@ func _Runtime_NextAction_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Runtime_Collaborate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NextRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServer).Collaborate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Runtime_Collaborate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServer).Collaborate(ctx, req.(*NextRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Runtime_ServiceDesc is the grpc.ServiceDesc for Runtime service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -120,6 +154,10 @@ var Runtime_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "NextAction",
 			Handler:    _Runtime_NextAction_Handler,
+		},
+		{
+			MethodName: "Collaborate",
+			Handler:    _Runtime_Collaborate_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

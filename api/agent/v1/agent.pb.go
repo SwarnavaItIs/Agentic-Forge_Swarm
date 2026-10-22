@@ -117,10 +117,11 @@ const file_api_agent_v1_agent_proto_rawDesc = "" +
 	"\vNextRequest\x12!\n" +
 	"\fcontext_json\x18\x01 \x01(\fR\vcontextJson\"0\n" +
 	"\tNextReply\x12#\n" +
-	"\rresponse_json\x18\x01 \x01(\fR\fresponseJson2Y\n" +
+	"\rresponse_json\x18\x01 \x01(\fR\fresponseJson2\xaa\x01\n" +
 	"\aRuntime\x12N\n" +
 	"\n" +
-	"NextAction\x12 .forgeswarm.agent.v1.NextRequest\x1a\x1e.forgeswarm.agent.v1.NextReplyB!Z\x1fforgeswarm/api/agent/v1;agentv1b\x06proto3"
+	"NextAction\x12 .forgeswarm.agent.v1.NextRequest\x1a\x1e.forgeswarm.agent.v1.NextReply\x12O\n" +
+	"\vCollaborate\x12 .forgeswarm.agent.v1.NextRequest\x1a\x1e.forgeswarm.agent.v1.NextReplyB!Z\x1fforgeswarm/api/agent/v1;agentv1b\x06proto3"
 
 var (
 	file_api_agent_v1_agent_proto_rawDescOnce sync.Once
@@ -141,9 +142,11 @@ var file_api_agent_v1_agent_proto_goTypes = []any{
 }
 var file_api_agent_v1_agent_proto_depIdxs = []int32{
 	0, // 0: forgeswarm.agent.v1.Runtime.NextAction:input_type -> forgeswarm.agent.v1.NextRequest
-	1, // 1: forgeswarm.agent.v1.Runtime.NextAction:output_type -> forgeswarm.agent.v1.NextReply
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
+	0, // 1: forgeswarm.agent.v1.Runtime.Collaborate:input_type -> forgeswarm.agent.v1.NextRequest
+	1, // 2: forgeswarm.agent.v1.Runtime.NextAction:output_type -> forgeswarm.agent.v1.NextReply
+	1, // 3: forgeswarm.agent.v1.Runtime.Collaborate:output_type -> forgeswarm.agent.v1.NextReply
+	2, // [2:4] is the sub-list for method output_type
+	0, // [0:2] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name

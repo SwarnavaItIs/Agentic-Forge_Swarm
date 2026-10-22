@@ -32,6 +32,13 @@ func Run(ctx context.Context, store Store, settings Settings, logger *slog.Logge
 		}
 		scanCtx, cancel := context.WithTimeout(ctx, settings.ScanTimeout)
 		result, err := store.ReconcileBatch(scanCtx, settings.BatchSize)
+		if err == nil {
+			if collaboration, ok := store.(interface {
+				ReconcileCollaboration(context.Context, int) error
+			}); ok {
+				err = collaboration.ReconcileCollaboration(scanCtx, settings.BatchSize)
+			}
+		}
 		cancel()
 		if ctx.Err() != nil {
 			return nil

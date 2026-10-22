@@ -25,7 +25,17 @@ func TestAgentVersionAndLegacyGolden(t *testing.T) {
 			t.Fatal(v, e)
 		}
 	}
-	if _, e := HashForVersion(job, 6); e != nil {
+	if frozen, e := HashForVersion(job, 6); e != nil || fmt.Sprintf("%x", frozen) != "cad2f04af64e2270fcbc9f8fcfcc65cbba2816be7e35cf2f79546a15bea523f4" {
+		t.Fatal(e)
+	}
+	job.Tasks[0].Agent.Role = &agent.RoleSpec{SchemaVersion: 1, Name: "planner", Version: 1, TaskKey: "plan", Scope: []string{}, Profile: agent.MathProfile, MaxCalls: 4}
+	job.Tasks[0].Agent.TestProfile = agent.MathProfile
+	for version := 1; version <= 6; version++ {
+		if _, e := HashForVersion(job, version); e != ErrConflict {
+			t.Fatal("role input projected onto legacy version", version, e)
+		}
+	}
+	if _, e := HashForVersion(job, 7); e != nil {
 		t.Fatal(e)
 	}
 }

@@ -41,6 +41,11 @@ class RuntimeStub(object):
                 request_serializer=agent__pb2.NextRequest.SerializeToString,
                 response_deserializer=agent__pb2.NextReply.FromString,
                 _registered_method=True)
+        self.Collaborate = channel.unary_unary(
+                '/forgeswarm.agent.v1.Runtime/Collaborate',
+                request_serializer=agent__pb2.NextRequest.SerializeToString,
+                response_deserializer=agent__pb2.NextReply.FromString,
+                _registered_method=True)
 
 
 class RuntimeServicer(object):
@@ -54,11 +59,22 @@ class RuntimeServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Collaborate(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_RuntimeServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'NextAction': grpc.unary_unary_rpc_method_handler(
                     servicer.NextAction,
+                    request_deserializer=agent__pb2.NextRequest.FromString,
+                    response_serializer=agent__pb2.NextReply.SerializeToString,
+            ),
+            'Collaborate': grpc.unary_unary_rpc_method_handler(
+                    servicer.Collaborate,
                     request_deserializer=agent__pb2.NextRequest.FromString,
                     response_serializer=agent__pb2.NextReply.SerializeToString,
             ),
@@ -90,6 +106,33 @@ class Runtime(object):
             request,
             target,
             '/forgeswarm.agent.v1.Runtime/NextAction',
+            agent__pb2.NextRequest.SerializeToString,
+            agent__pb2.NextReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Collaborate(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/forgeswarm.agent.v1.Runtime/Collaborate',
             agent__pb2.NextRequest.SerializeToString,
             agent__pb2.NextReply.FromString,
             options,

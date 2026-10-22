@@ -12,3 +12,7 @@ verify-stage-05 sandbox-prepare sandbox-fixture sandbox-demo sandbox-test:
 .PHONY: agent-demo-fixture agent-test verify-stage-06 agent-runtime-prepare
 agent-demo-fixture agent-test verify-stage-06 agent-runtime-prepare:
 	$(PYTHON) scripts/dev.py $@
+
+.PHONY: verify-stage-07 collaboration-fixture collaboration-test dashboard-test
+verify-stage-07 collaboration-fixture collaboration-test dashboard-test:
+	$(PYTHON) scripts/dev.py $@

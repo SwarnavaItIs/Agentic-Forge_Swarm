@@ -10,3 +10,7 @@ pytest-cache-files-*/
 # Generated sanitized evidence: verification replaces the latest run; retain locally
 # until the next run, export externally if needed. Never commit command logs.
 artifacts/verification/
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/

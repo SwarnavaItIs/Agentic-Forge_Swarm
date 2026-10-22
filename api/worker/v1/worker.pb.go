@@ -22,6 +22,50 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type RoleInput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	WorkJson      []byte                 `protobuf:"bytes,1,opt,name=work_json,json=workJson,proto3" json:"work_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RoleInput) Reset() {
+	*x = RoleInput{}
+	mi := &file_api_worker_v1_worker_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RoleInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RoleInput) ProtoMessage() {}
+
+func (x *RoleInput) ProtoReflect() protoreflect.Message {
+	mi := &file_api_worker_v1_worker_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RoleInput.ProtoReflect.Descriptor instead.
+func (*RoleInput) Descriptor() ([]byte, []int) {
+	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *RoleInput) GetWorkJson() []byte {
+	if x != nil {
+		return x.WorkJson
+	}
+	return nil
+}
+
 type RegisterRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	InstanceId    string                 `protobuf:"bytes,1,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
@@ -33,7 +77,7 @@ type RegisterRequest struct {
 
 func (x *RegisterRequest) Reset() {
 	*x = RegisterRequest{}
-	mi := &file_api_worker_v1_worker_proto_msgTypes[0]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -45,7 +89,7 @@ func (x *RegisterRequest) String() string {
 func (*RegisterRequest) ProtoMessage() {}
 
 func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_worker_v1_worker_proto_msgTypes[0]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -58,7 +102,7 @@ func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterRequest.ProtoReflect.Descriptor instead.
 func (*RegisterRequest) Descriptor() ([]byte, []int) {
-	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{0}
+	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *RegisterRequest) GetInstanceId() string {
@@ -91,7 +135,7 @@ type InstanceRequest struct {
 
 func (x *InstanceRequest) Reset() {
 	*x = InstanceRequest{}
-	mi := &file_api_worker_v1_worker_proto_msgTypes[1]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -103,7 +147,7 @@ func (x *InstanceRequest) String() string {
 func (*InstanceRequest) ProtoMessage() {}
 
 func (x *InstanceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_worker_v1_worker_proto_msgTypes[1]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -116,7 +160,7 @@ func (x *InstanceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstanceRequest.ProtoReflect.Descriptor instead.
 func (*InstanceRequest) Descriptor() ([]byte, []int) {
-	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{1}
+	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *InstanceRequest) GetInstanceId() string {
@@ -136,7 +180,7 @@ type DrainRequest struct {
 
 func (x *DrainRequest) Reset() {
 	*x = DrainRequest{}
-	mi := &file_api_worker_v1_worker_proto_msgTypes[2]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -148,7 +192,7 @@ func (x *DrainRequest) String() string {
 func (*DrainRequest) ProtoMessage() {}
 
 func (x *DrainRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_worker_v1_worker_proto_msgTypes[2]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -161,7 +205,7 @@ func (x *DrainRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DrainRequest.ProtoReflect.Descriptor instead.
 func (*DrainRequest) Descriptor() ([]byte, []int) {
-	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{2}
+	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *DrainRequest) GetInstanceId() string {
@@ -191,7 +235,7 @@ type Worker struct {
 
 func (x *Worker) Reset() {
 	*x = Worker{}
-	mi := &file_api_worker_v1_worker_proto_msgTypes[3]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -203,7 +247,7 @@ func (x *Worker) String() string {
 func (*Worker) ProtoMessage() {}
 
 func (x *Worker) ProtoReflect() protoreflect.Message {
-	mi := &file_api_worker_v1_worker_proto_msgTypes[3]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -216,7 +260,7 @@ func (x *Worker) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Worker.ProtoReflect.Descriptor instead.
 func (*Worker) Descriptor() ([]byte, []int) {
-	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{3}
+	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Worker) GetWorkerId() string {
@@ -266,7 +310,7 @@ type ClaimRequest struct {
 
 func (x *ClaimRequest) Reset() {
 	*x = ClaimRequest{}
-	mi := &file_api_worker_v1_worker_proto_msgTypes[4]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -278,7 +322,7 @@ func (x *ClaimRequest) String() string {
 func (*ClaimRequest) ProtoMessage() {}
 
 func (x *ClaimRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_worker_v1_worker_proto_msgTypes[4]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -291,7 +335,7 @@ func (x *ClaimRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClaimRequest.ProtoReflect.Descriptor instead.
 func (*ClaimRequest) Descriptor() ([]byte, []int) {
-	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{4}
+	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ClaimRequest) GetInstanceId() string {
@@ -333,7 +377,7 @@ type AttemptRequest struct {
 
 func (x *AttemptRequest) Reset() {
 	*x = AttemptRequest{}
-	mi := &file_api_worker_v1_worker_proto_msgTypes[5]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -345,7 +389,7 @@ func (x *AttemptRequest) String() string {
 func (*AttemptRequest) ProtoMessage() {}
 
 func (x *AttemptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_worker_v1_worker_proto_msgTypes[5]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -358,7 +402,7 @@ func (x *AttemptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttemptRequest.ProtoReflect.Descriptor instead.
 func (*AttemptRequest) Descriptor() ([]byte, []int) {
-	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{5}
+	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *AttemptRequest) GetInstanceId() string {
@@ -395,7 +439,7 @@ type OutcomeRequest struct {
 
 func (x *OutcomeRequest) Reset() {
 	*x = OutcomeRequest{}
-	mi := &file_api_worker_v1_worker_proto_msgTypes[6]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -407,7 +451,7 @@ func (x *OutcomeRequest) String() string {
 func (*OutcomeRequest) ProtoMessage() {}
 
 func (x *OutcomeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_worker_v1_worker_proto_msgTypes[6]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -420,7 +464,7 @@ func (x *OutcomeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutcomeRequest.ProtoReflect.Descriptor instead.
 func (*OutcomeRequest) Descriptor() ([]byte, []int) {
-	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{6}
+	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *OutcomeRequest) GetInstanceId() string {
@@ -468,7 +512,7 @@ type SandboxRequest struct {
 
 func (x *SandboxRequest) Reset() {
 	*x = SandboxRequest{}
-	mi := &file_api_worker_v1_worker_proto_msgTypes[7]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -480,7 +524,7 @@ func (x *SandboxRequest) String() string {
 func (*SandboxRequest) ProtoMessage() {}
 
 func (x *SandboxRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_worker_v1_worker_proto_msgTypes[7]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -493,7 +537,7 @@ func (x *SandboxRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SandboxRequest.ProtoReflect.Descriptor instead.
 func (*SandboxRequest) Descriptor() ([]byte, []int) {
-	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{7}
+	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SandboxRequest) GetAttempt() *AttemptRequest {
@@ -520,7 +564,7 @@ type SandboxOutcome struct {
 
 func (x *SandboxOutcome) Reset() {
 	*x = SandboxOutcome{}
-	mi := &file_api_worker_v1_worker_proto_msgTypes[8]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -532,7 +576,7 @@ func (x *SandboxOutcome) String() string {
 func (*SandboxOutcome) ProtoMessage() {}
 
 func (x *SandboxOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_api_worker_v1_worker_proto_msgTypes[8]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -545,7 +589,7 @@ func (x *SandboxOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SandboxOutcome.ProtoReflect.Descriptor instead.
 func (*SandboxOutcome) Descriptor() ([]byte, []int) {
-	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{8}
+	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SandboxOutcome) GetRequest() *SandboxRequest {
@@ -571,7 +615,7 @@ type CleanupPage struct {
 
 func (x *CleanupPage) Reset() {
 	*x = CleanupPage{}
-	mi := &file_api_worker_v1_worker_proto_msgTypes[9]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -583,7 +627,7 @@ func (x *CleanupPage) String() string {
 func (*CleanupPage) ProtoMessage() {}
 
 func (x *CleanupPage) ProtoReflect() protoreflect.Message {
-	mi := &file_api_worker_v1_worker_proto_msgTypes[9]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -596,7 +640,7 @@ func (x *CleanupPage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanupPage.ProtoReflect.Descriptor instead.
 func (*CleanupPage) Descriptor() ([]byte, []int) {
-	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{9}
+	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *CleanupPage) GetAttempts() []*Attempt {
@@ -616,7 +660,7 @@ type AgentEventRequest struct {
 
 func (x *AgentEventRequest) Reset() {
 	*x = AgentEventRequest{}
-	mi := &file_api_worker_v1_worker_proto_msgTypes[10]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -628,7 +672,7 @@ func (x *AgentEventRequest) String() string {
 func (*AgentEventRequest) ProtoMessage() {}
 
 func (x *AgentEventRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_worker_v1_worker_proto_msgTypes[10]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -641,7 +685,7 @@ func (x *AgentEventRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentEventRequest.ProtoReflect.Descriptor instead.
 func (*AgentEventRequest) Descriptor() ([]byte, []int) {
-	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{10}
+	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *AgentEventRequest) GetAttempt() *AttemptRequest {
@@ -668,7 +712,7 @@ type AgentOutcome struct {
 
 func (x *AgentOutcome) Reset() {
 	*x = AgentOutcome{}
-	mi := &file_api_worker_v1_worker_proto_msgTypes[11]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -680,7 +724,7 @@ func (x *AgentOutcome) String() string {
 func (*AgentOutcome) ProtoMessage() {}
 
 func (x *AgentOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_api_worker_v1_worker_proto_msgTypes[11]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -693,7 +737,7 @@ func (x *AgentOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentOutcome.ProtoReflect.Descriptor instead.
 func (*AgentOutcome) Descriptor() ([]byte, []int) {
-	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{11}
+	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *AgentOutcome) GetAttempt() *AttemptRequest {
@@ -741,7 +785,7 @@ type Attempt struct {
 
 func (x *Attempt) Reset() {
 	*x = Attempt{}
-	mi := &file_api_worker_v1_worker_proto_msgTypes[12]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -753,7 +797,7 @@ func (x *Attempt) String() string {
 func (*Attempt) ProtoMessage() {}
 
 func (x *Attempt) ProtoReflect() protoreflect.Message {
-	mi := &file_api_worker_v1_worker_proto_msgTypes[12]
+	mi := &file_api_worker_v1_worker_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -766,7 +810,7 @@ func (x *Attempt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Attempt.ProtoReflect.Descriptor instead.
 func (*Attempt) Descriptor() ([]byte, []int) {
-	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{12}
+	return file_api_worker_v1_worker_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Attempt) GetId() string {
@@ -934,7 +978,9 @@ var File_api_worker_v1_worker_proto protoreflect.FileDescriptor
 
 const file_api_worker_v1_worker_proto_rawDesc = "" +
 	"\n" +
-	"\x1aapi/worker/v1/worker.proto\x12\x14forgeswarm.worker.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"r\n" +
+	"\x1aapi/worker/v1/worker.proto\x12\x14forgeswarm.worker.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"(\n" +
+	"\tRoleInput\x12\x1b\n" +
+	"\twork_json\x18\x01 \x01(\fR\bworkJson\"r\n" +
 	"\x0fRegisterRequest\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12\"\n" +
@@ -1029,8 +1075,10 @@ const file_api_worker_v1_worker_proto_rawDesc = "" +
 	"\vinstance_id\x18\x15 \x01(\tR\n" +
 	"instanceId\x126\n" +
 	"\x17execution_metadata_json\x18\x16 \x01(\fR\x15executionMetadataJson\x12(\n" +
-	"\x10agent_input_json\x18\x17 \x01(\fR\x0eagentInputJson2\xbb\t\n" +
-	"\vCoordinator\x12U\n" +
+	"\x10agent_input_json\x18\x17 \x01(\fR\x0eagentInputJson2\x91\n" +
+	"\n" +
+	"\vCoordinator\x12T\n" +
+	"\vPrepareRole\x12$.forgeswarm.worker.v1.AttemptRequest\x1a\x1f.forgeswarm.worker.v1.RoleInput\x12U\n" +
 	"\x0eRegisterWorker\x12%.forgeswarm.worker.v1.RegisterRequest\x1a\x1c.forgeswarm.worker.v1.Worker\x12V\n" +
 	"\x0fHeartbeatWorker\x12%.forgeswarm.worker.v1.InstanceRequest\x1a\x1c.forgeswarm.worker.v1.Worker\x12O\n" +
 	"\vSetDraining\x12\".forgeswarm.worker.v1.DrainRequest\x1a\x1c.forgeswarm.worker.v1.Worker\x12N\n" +
@@ -1060,64 +1108,67 @@ func file_api_worker_v1_worker_proto_rawDescGZIP() []byte {
 	return file_api_worker_v1_worker_proto_rawDescData
 }
 
-var file_api_worker_v1_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_api_worker_v1_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_api_worker_v1_worker_proto_goTypes = []any{
-	(*RegisterRequest)(nil),       // 0: forgeswarm.worker.v1.RegisterRequest
-	(*InstanceRequest)(nil),       // 1: forgeswarm.worker.v1.InstanceRequest
-	(*DrainRequest)(nil),          // 2: forgeswarm.worker.v1.DrainRequest
-	(*Worker)(nil),                // 3: forgeswarm.worker.v1.Worker
-	(*ClaimRequest)(nil),          // 4: forgeswarm.worker.v1.ClaimRequest
-	(*AttemptRequest)(nil),        // 5: forgeswarm.worker.v1.AttemptRequest
-	(*OutcomeRequest)(nil),        // 6: forgeswarm.worker.v1.OutcomeRequest
-	(*SandboxRequest)(nil),        // 7: forgeswarm.worker.v1.SandboxRequest
-	(*SandboxOutcome)(nil),        // 8: forgeswarm.worker.v1.SandboxOutcome
-	(*CleanupPage)(nil),           // 9: forgeswarm.worker.v1.CleanupPage
-	(*AgentEventRequest)(nil),     // 10: forgeswarm.worker.v1.AgentEventRequest
-	(*AgentOutcome)(nil),          // 11: forgeswarm.worker.v1.AgentOutcome
-	(*Attempt)(nil),               // 12: forgeswarm.worker.v1.Attempt
-	(*timestamppb.Timestamp)(nil), // 13: google.protobuf.Timestamp
+	(*RoleInput)(nil),             // 0: forgeswarm.worker.v1.RoleInput
+	(*RegisterRequest)(nil),       // 1: forgeswarm.worker.v1.RegisterRequest
+	(*InstanceRequest)(nil),       // 2: forgeswarm.worker.v1.InstanceRequest
+	(*DrainRequest)(nil),          // 3: forgeswarm.worker.v1.DrainRequest
+	(*Worker)(nil),                // 4: forgeswarm.worker.v1.Worker
+	(*ClaimRequest)(nil),          // 5: forgeswarm.worker.v1.ClaimRequest
+	(*AttemptRequest)(nil),        // 6: forgeswarm.worker.v1.AttemptRequest
+	(*OutcomeRequest)(nil),        // 7: forgeswarm.worker.v1.OutcomeRequest
+	(*SandboxRequest)(nil),        // 8: forgeswarm.worker.v1.SandboxRequest
+	(*SandboxOutcome)(nil),        // 9: forgeswarm.worker.v1.SandboxOutcome
+	(*CleanupPage)(nil),           // 10: forgeswarm.worker.v1.CleanupPage
+	(*AgentEventRequest)(nil),     // 11: forgeswarm.worker.v1.AgentEventRequest
+	(*AgentOutcome)(nil),          // 12: forgeswarm.worker.v1.AgentOutcome
+	(*Attempt)(nil),               // 13: forgeswarm.worker.v1.Attempt
+	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
 }
 var file_api_worker_v1_worker_proto_depIdxs = []int32{
-	13, // 0: forgeswarm.worker.v1.Worker.heartbeat_at:type_name -> google.protobuf.Timestamp
-	5,  // 1: forgeswarm.worker.v1.SandboxRequest.attempt:type_name -> forgeswarm.worker.v1.AttemptRequest
-	7,  // 2: forgeswarm.worker.v1.SandboxOutcome.request:type_name -> forgeswarm.worker.v1.SandboxRequest
-	12, // 3: forgeswarm.worker.v1.CleanupPage.attempts:type_name -> forgeswarm.worker.v1.Attempt
-	5,  // 4: forgeswarm.worker.v1.AgentEventRequest.attempt:type_name -> forgeswarm.worker.v1.AttemptRequest
-	5,  // 5: forgeswarm.worker.v1.AgentOutcome.attempt:type_name -> forgeswarm.worker.v1.AttemptRequest
-	13, // 6: forgeswarm.worker.v1.Attempt.started_at:type_name -> google.protobuf.Timestamp
-	13, // 7: forgeswarm.worker.v1.Attempt.lease_expires_at:type_name -> google.protobuf.Timestamp
-	13, // 8: forgeswarm.worker.v1.Attempt.finished_at:type_name -> google.protobuf.Timestamp
-	13, // 9: forgeswarm.worker.v1.Attempt.deadline_at:type_name -> google.protobuf.Timestamp
-	0,  // 10: forgeswarm.worker.v1.Coordinator.RegisterWorker:input_type -> forgeswarm.worker.v1.RegisterRequest
-	1,  // 11: forgeswarm.worker.v1.Coordinator.HeartbeatWorker:input_type -> forgeswarm.worker.v1.InstanceRequest
-	2,  // 12: forgeswarm.worker.v1.Coordinator.SetDraining:input_type -> forgeswarm.worker.v1.DrainRequest
-	4,  // 13: forgeswarm.worker.v1.Coordinator.ClaimTask:input_type -> forgeswarm.worker.v1.ClaimRequest
-	5,  // 14: forgeswarm.worker.v1.Coordinator.RenewLease:input_type -> forgeswarm.worker.v1.AttemptRequest
-	6,  // 15: forgeswarm.worker.v1.Coordinator.CompleteTask:input_type -> forgeswarm.worker.v1.OutcomeRequest
-	6,  // 16: forgeswarm.worker.v1.Coordinator.FailTask:input_type -> forgeswarm.worker.v1.OutcomeRequest
-	5,  // 17: forgeswarm.worker.v1.Coordinator.AuthorizeTool:input_type -> forgeswarm.worker.v1.AttemptRequest
-	5,  // 18: forgeswarm.worker.v1.Coordinator.AcknowledgeStop:input_type -> forgeswarm.worker.v1.AttemptRequest
-	7,  // 19: forgeswarm.worker.v1.Coordinator.AuthorizeSandbox:input_type -> forgeswarm.worker.v1.SandboxRequest
-	8,  // 20: forgeswarm.worker.v1.Coordinator.CompleteSandbox:input_type -> forgeswarm.worker.v1.SandboxOutcome
-	1,  // 21: forgeswarm.worker.v1.Coordinator.SandboxCleanup:input_type -> forgeswarm.worker.v1.InstanceRequest
-	10, // 22: forgeswarm.worker.v1.Coordinator.AgentEvent:input_type -> forgeswarm.worker.v1.AgentEventRequest
-	11, // 23: forgeswarm.worker.v1.Coordinator.CompleteAgent:input_type -> forgeswarm.worker.v1.AgentOutcome
-	3,  // 24: forgeswarm.worker.v1.Coordinator.RegisterWorker:output_type -> forgeswarm.worker.v1.Worker
-	3,  // 25: forgeswarm.worker.v1.Coordinator.HeartbeatWorker:output_type -> forgeswarm.worker.v1.Worker
-	3,  // 26: forgeswarm.worker.v1.Coordinator.SetDraining:output_type -> forgeswarm.worker.v1.Worker
-	12, // 27: forgeswarm.worker.v1.Coordinator.ClaimTask:output_type -> forgeswarm.worker.v1.Attempt
-	12, // 28: forgeswarm.worker.v1.Coordinator.RenewLease:output_type -> forgeswarm.worker.v1.Attempt
-	12, // 29: forgeswarm.worker.v1.Coordinator.CompleteTask:output_type -> forgeswarm.worker.v1.Attempt
-	12, // 30: forgeswarm.worker.v1.Coordinator.FailTask:output_type -> forgeswarm.worker.v1.Attempt
-	12, // 31: forgeswarm.worker.v1.Coordinator.AuthorizeTool:output_type -> forgeswarm.worker.v1.Attempt
-	12, // 32: forgeswarm.worker.v1.Coordinator.AcknowledgeStop:output_type -> forgeswarm.worker.v1.Attempt
-	12, // 33: forgeswarm.worker.v1.Coordinator.AuthorizeSandbox:output_type -> forgeswarm.worker.v1.Attempt
-	12, // 34: forgeswarm.worker.v1.Coordinator.CompleteSandbox:output_type -> forgeswarm.worker.v1.Attempt
-	9,  // 35: forgeswarm.worker.v1.Coordinator.SandboxCleanup:output_type -> forgeswarm.worker.v1.CleanupPage
-	12, // 36: forgeswarm.worker.v1.Coordinator.AgentEvent:output_type -> forgeswarm.worker.v1.Attempt
-	12, // 37: forgeswarm.worker.v1.Coordinator.CompleteAgent:output_type -> forgeswarm.worker.v1.Attempt
-	24, // [24:38] is the sub-list for method output_type
-	10, // [10:24] is the sub-list for method input_type
+	14, // 0: forgeswarm.worker.v1.Worker.heartbeat_at:type_name -> google.protobuf.Timestamp
+	6,  // 1: forgeswarm.worker.v1.SandboxRequest.attempt:type_name -> forgeswarm.worker.v1.AttemptRequest
+	8,  // 2: forgeswarm.worker.v1.SandboxOutcome.request:type_name -> forgeswarm.worker.v1.SandboxRequest
+	13, // 3: forgeswarm.worker.v1.CleanupPage.attempts:type_name -> forgeswarm.worker.v1.Attempt
+	6,  // 4: forgeswarm.worker.v1.AgentEventRequest.attempt:type_name -> forgeswarm.worker.v1.AttemptRequest
+	6,  // 5: forgeswarm.worker.v1.AgentOutcome.attempt:type_name -> forgeswarm.worker.v1.AttemptRequest
+	14, // 6: forgeswarm.worker.v1.Attempt.started_at:type_name -> google.protobuf.Timestamp
+	14, // 7: forgeswarm.worker.v1.Attempt.lease_expires_at:type_name -> google.protobuf.Timestamp
+	14, // 8: forgeswarm.worker.v1.Attempt.finished_at:type_name -> google.protobuf.Timestamp
+	14, // 9: forgeswarm.worker.v1.Attempt.deadline_at:type_name -> google.protobuf.Timestamp
+	6,  // 10: forgeswarm.worker.v1.Coordinator.PrepareRole:input_type -> forgeswarm.worker.v1.AttemptRequest
+	1,  // 11: forgeswarm.worker.v1.Coordinator.RegisterWorker:input_type -> forgeswarm.worker.v1.RegisterRequest
+	2,  // 12: forgeswarm.worker.v1.Coordinator.HeartbeatWorker:input_type -> forgeswarm.worker.v1.InstanceRequest
+	3,  // 13: forgeswarm.worker.v1.Coordinator.SetDraining:input_type -> forgeswarm.worker.v1.DrainRequest
+	5,  // 14: forgeswarm.worker.v1.Coordinator.ClaimTask:input_type -> forgeswarm.worker.v1.ClaimRequest
+	6,  // 15: forgeswarm.worker.v1.Coordinator.RenewLease:input_type -> forgeswarm.worker.v1.AttemptRequest
+	7,  // 16: forgeswarm.worker.v1.Coordinator.CompleteTask:input_type -> forgeswarm.worker.v1.OutcomeRequest
+	7,  // 17: forgeswarm.worker.v1.Coordinator.FailTask:input_type -> forgeswarm.worker.v1.OutcomeRequest
+	6,  // 18: forgeswarm.worker.v1.Coordinator.AuthorizeTool:input_type -> forgeswarm.worker.v1.AttemptRequest
+	6,  // 19: forgeswarm.worker.v1.Coordinator.AcknowledgeStop:input_type -> forgeswarm.worker.v1.AttemptRequest
+	8,  // 20: forgeswarm.worker.v1.Coordinator.AuthorizeSandbox:input_type -> forgeswarm.worker.v1.SandboxRequest
+	9,  // 21: forgeswarm.worker.v1.Coordinator.CompleteSandbox:input_type -> forgeswarm.worker.v1.SandboxOutcome
+	2,  // 22: forgeswarm.worker.v1.Coordinator.SandboxCleanup:input_type -> forgeswarm.worker.v1.InstanceRequest
+	11, // 23: forgeswarm.worker.v1.Coordinator.AgentEvent:input_type -> forgeswarm.worker.v1.AgentEventRequest
+	12, // 24: forgeswarm.worker.v1.Coordinator.CompleteAgent:input_type -> forgeswarm.worker.v1.AgentOutcome
+	0,  // 25: forgeswarm.worker.v1.Coordinator.PrepareRole:output_type -> forgeswarm.worker.v1.RoleInput
+	4,  // 26: forgeswarm.worker.v1.Coordinator.RegisterWorker:output_type -> forgeswarm.worker.v1.Worker
+	4,  // 27: forgeswarm.worker.v1.Coordinator.HeartbeatWorker:output_type -> forgeswarm.worker.v1.Worker
+	4,  // 28: forgeswarm.worker.v1.Coordinator.SetDraining:output_type -> forgeswarm.worker.v1.Worker
+	13, // 29: forgeswarm.worker.v1.Coordinator.ClaimTask:output_type -> forgeswarm.worker.v1.Attempt
+	13, // 30: forgeswarm.worker.v1.Coordinator.RenewLease:output_type -> forgeswarm.worker.v1.Attempt
+	13, // 31: forgeswarm.worker.v1.Coordinator.CompleteTask:output_type -> forgeswarm.worker.v1.Attempt
+	13, // 32: forgeswarm.worker.v1.Coordinator.FailTask:output_type -> forgeswarm.worker.v1.Attempt
+	13, // 33: forgeswarm.worker.v1.Coordinator.AuthorizeTool:output_type -> forgeswarm.worker.v1.Attempt
+	13, // 34: forgeswarm.worker.v1.Coordinator.AcknowledgeStop:output_type -> forgeswarm.worker.v1.Attempt
+	13, // 35: forgeswarm.worker.v1.Coordinator.AuthorizeSandbox:output_type -> forgeswarm.worker.v1.Attempt
+	13, // 36: forgeswarm.worker.v1.Coordinator.CompleteSandbox:output_type -> forgeswarm.worker.v1.Attempt
+	10, // 37: forgeswarm.worker.v1.Coordinator.SandboxCleanup:output_type -> forgeswarm.worker.v1.CleanupPage
+	13, // 38: forgeswarm.worker.v1.Coordinator.AgentEvent:output_type -> forgeswarm.worker.v1.Attempt
+	13, // 39: forgeswarm.worker.v1.Coordinator.CompleteAgent:output_type -> forgeswarm.worker.v1.Attempt
+	25, // [25:40] is the sub-list for method output_type
+	10, // [10:25] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
 	10, // [10:10] is the sub-list for extension extendee
 	0,  // [0:10] is the sub-list for field type_name
@@ -1134,7 +1185,7 @@ func file_api_worker_v1_worker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_worker_v1_worker_proto_rawDesc), len(file_api_worker_v1_worker_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

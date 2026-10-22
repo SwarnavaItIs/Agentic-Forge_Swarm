@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"encoding/json"
 	"forgeswarm/api/worker/v1"
 	"forgeswarm/internal/agent"
 	"forgeswarm/internal/execution"
@@ -10,6 +11,28 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+func (s *Server) PrepareRole(ctx context.Context, r *workerv1.AttemptRequest) (*workerv1.RoleInput, error) {
+	i, a, e := agentIDs(r)
+	if e != nil {
+		return nil, e
+	}
+	store, ok := s.store.(interface {
+		PrepareRole(context.Context, string, uuid.UUID, uuid.UUID, int64) (agent.RoleWork, error)
+	})
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "roles unavailable")
+	}
+	work, e := store.PrepareRole(ctx, Identity(ctx), i, a, r.Generation)
+	if e != nil {
+		return nil, safe(e)
+	}
+	body, _ := json.Marshal(work)
+	if len(body) > 32<<10 {
+		return nil, status.Error(codes.ResourceExhausted, "role input ceiling")
+	}
+	return &workerv1.RoleInput{WorkJson: body}, nil
+}
 
 type agentStore interface {
 	AgentEvent(context.Context, string, uuid.UUID, uuid.UUID, int64, agent.Event) (execution.Attempt, error)

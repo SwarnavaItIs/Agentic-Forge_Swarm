@@ -29,6 +29,9 @@ func (s *Store) AuthorizeSandbox(ctx context.Context, worker string, instance, i
 	if !live {
 		return a, execution.ErrStale
 	}
+	if err = s.roleLive(ctx, tx, a); err != nil {
+		return a, err
+	}
 	if (a.Kind != "sandbox_go" && a.Kind != "agent_go") || a.Sandbox == nil || !a.Sandbox.Valid() {
 		return a, workflow.ErrInvalid
 	}

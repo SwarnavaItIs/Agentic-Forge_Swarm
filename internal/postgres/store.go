@@ -81,6 +81,22 @@ func classify(err error) error {
 }
 
 func (s *Store) Create(ctx context.Context, key string, in workflow.CreateInput) (workflow.Receipt, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return workflow.Receipt{}, classify(err)
+	}
+	defer rollback(tx)
+	receipt, err := s.createTx(ctx, tx, key, in)
+	if err != nil {
+		return receipt, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return workflow.Receipt{}, classify(err)
+	}
+	return receipt, nil
+}
+
+func (s *Store) createTx(ctx context.Context, tx pgx.Tx, key string, in workflow.CreateInput) (workflow.Receipt, error) {
 	if !workflow.ValidCreationKey(key) {
 		return workflow.Receipt{}, workflow.ErrInvalid
 	}
@@ -92,11 +108,6 @@ func (s *Store) Create(ctx context.Context, key string, in workflow.CreateInput)
 	if err != nil {
 		return workflow.Receipt{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
-	if err != nil {
-		return workflow.Receipt{}, classify(err)
-	}
-	defer rollback(tx)
 	if err = admission(ctx, tx); err != nil {
 		return workflow.Receipt{}, err
 	}
@@ -112,9 +123,6 @@ func (s *Store) Create(ctx context.Context, key string, in workflow.CreateInput)
 		}
 		if !bytes.Equal(h[:], stored) {
 			return prior, workflow.ErrConflict
-		}
-		if e = tx.Commit(ctx); e != nil {
-			return workflow.Receipt{}, classify(e)
 		}
 		return prior, nil
 	}
@@ -209,13 +217,20 @@ func (s *Store) Create(ctx context.Context, key string, in workflow.CreateInput)
 	}
 	// Commit failure may be ambiguous. Never return a receipt on error; retrying
 	// the creation key resolves whether the server committed or rolled back.
-	if err := tx.Commit(ctx); err != nil {
-		return workflow.Receipt{}, classify(err)
-	}
 	return receipt, nil
 }
 
 func (s *Store) Cancel(ctx context.Context, id uuid.UUID) (workflow.CancellationResult, error) {
+	var project bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM collab_projects WHERE root_id=$1)`, id).Scan(&project); err != nil {
+		return workflow.CancellationResult{}, classify(err)
+	}
+	if project {
+		return s.cancelProject(ctx, id)
+	}
+	return s.cancelWorkflow(ctx, id)
+}
+func (s *Store) cancelWorkflow(ctx context.Context, id uuid.UUID) (workflow.CancellationResult, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return workflow.CancellationResult{}, classify(err)

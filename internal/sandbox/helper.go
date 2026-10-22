@@ -65,10 +65,13 @@ func ExecuteHelper(ctx context.Context, p Payload) (Result, error) {
 		}
 	}
 	if p.Profile != "" {
-		if p.Profile != "sum-v1" || r.Input.Command != "test" {
+		if !ProtectedProfile(p.Profile) || r.Input.Command != "test" {
 			return Result{}, ErrPolicy
 		}
-		return executeProtected(ctx, r, s)
+		if p.Profile == "sum-v1" {
+			return executeProtected(ctx, r, s)
+		}
+		return executeMath(ctx, r, s, p.Profile)
 	}
 	call, cancel := context.WithTimeout(ctx, time.Duration(r.Policy.TimeoutMS)*time.Millisecond)
 	defer cancel()

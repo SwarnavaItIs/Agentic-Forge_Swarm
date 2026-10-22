@@ -92,6 +92,14 @@ func (s *Store) AgentEvent(ctx context.Context, worker string, instance, id uuid
 			}
 			reserve := e.PromptUpper + agent.MaxOutput
 			money := pricing.Estimate(e.PromptUpper, agent.MaxOutput)
+			if a.Agent.Role != nil {
+				if err = s.reserveRoleBudget(ctx, tx, a, reserve, money); err != nil {
+					return a, err
+				}
+				if turns >= a.Agent.Role.MaxCalls {
+					return a, execution.ErrCapacity
+				}
+			}
 			// Parent ownership lock also serializes reservations across retries.
 			// Uncertain calls on an old attempt retain their charge; a fresh
 			// workspace never grants a fresh task spending/token allowance.
@@ -101,7 +109,7 @@ func (s *Store) AgentEvent(ctx context.Context, worker string, instance, id uuid
 			if err != nil {
 				return a, classify(err)
 			}
-			if tokens+reserve > agent.MaxTokens || cost+money > pricing.Maximum || taskTokens+reserve > agent.MaxTokens || taskCost+money > taskMaximum || taskTurns >= agent.MaxTurns {
+			if tokens+reserve > agent.MaxTokens || cost+money > pricing.Maximum || taskTokens+reserve > agent.MaxTokens || taskCost+money > taskMaximum || taskTurns >= agent.MaxTurns || a.Agent.Role != nil && taskTurns >= a.Agent.Role.MaxCalls {
 				// Keep the pinned session even when its first reservation is
 				// denied, so the worker can durably finish budget_exhausted.
 				// No provider call, pending reservation or usage is created.
@@ -209,7 +217,14 @@ func (s *Store) FinishAgent(ctx context.Context, worker string, instance, id uui
 	if command != nil {
 		refs = artifactReferences(id, *command)
 	}
-	body, _ := json.Marshal(map[string]any{"schema_version": 1, "agent_status": o.Status, "candidate_sha256": o.Candidate, "base_revision": o.BaseRevision, "patch_sha256": agent.SHA(o.Patch), "test_sha256": o.TestDigest, "outcome_sha256": agent.JSONSHA(o), "artifacts": refs})
+	metadata := map[string]any{"schema_version": 1, "agent_status": o.Status, "candidate_sha256": o.Candidate, "base_revision": o.BaseRevision, "patch_sha256": agent.SHA(o.Patch), "test_sha256": o.TestDigest, "outcome_sha256": agent.JSONSHA(o), "artifacts": refs}
+	if o.Collaboration != nil {
+		metadata["reason"] = o.Collaboration.Reason
+		if o.Collaboration.Review != nil {
+			metadata["review_decision"] = o.Collaboration.Review.Decision
+		}
+	}
+	body, _ := json.Marshal(metadata)
 	class := ""
 	if !o.Success() {
 		class = execution.Diagnostic
@@ -218,6 +233,12 @@ func (s *Store) FinishAgent(ctx context.Context, worker string, instance, id uui
 }
 func (s *Store) validateAgent(ctx context.Context, tx pgx.Tx, a execution.Attempt, o agent.Outcome) error {
 	if a.Agent == nil || o.Base != a.Agent.RepositoryID || o.BaseRevision != a.Agent.BaseRevision {
+		return workflow.ErrInvalid
+	}
+	if a.Agent.Role != nil {
+		return s.validateRole(ctx, tx, a, o)
+	}
+	if o.Collaboration != nil {
 		return workflow.ErrInvalid
 	}
 	var current string

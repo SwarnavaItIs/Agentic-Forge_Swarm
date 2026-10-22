@@ -21,7 +21,7 @@ import (
 const (
 	Pending              = "PENDING"
 	Cancelled            = "CANCELLED"
-	RequestSchemaVersion = 6
+	RequestSchemaVersion = 7
 	Cancelling           = "CANCELLING"
 	RetryWait            = "RETRY_WAIT"
 )
@@ -97,6 +97,11 @@ func Normalize(in CreateInput) (CreateInput, error) {
 		}
 		if in.Tasks[i].Agent != nil {
 			value := *in.Tasks[i].Agent
+			if value.Role != nil {
+				role := *value.Role
+				role.Scope = append([]string{}, role.Scope...)
+				value.Role = &role
+			}
 			in.Tasks[i].Agent = &value
 		}
 		slices.Sort(in.Tasks[i].DependsOn)
@@ -108,12 +113,19 @@ func Normalize(in CreateInput) (CreateInput, error) {
 // Future input fields require an explicit compatibility rule and a new version.
 // Version 1 uses this fixed typed representation; changing it changes old hashes.
 func HashForVersion(in CreateInput, version int) ([32]byte, error) {
-	if version < 1 || version > 6 {
+	if version < 1 || version > 7 {
 		return [32]byte{}, ErrState
 	}
 	normalized, err := Normalize(in)
 	if err != nil {
 		return [32]byte{}, err
+	}
+	if version < 7 {
+		for _, t := range normalized.Tasks {
+			if t.Agent != nil && t.Agent.Role != nil {
+				return [32]byte{}, ErrConflict
+			}
+		}
 	}
 	if version < 6 {
 		for _, task := range normalized.Tasks {

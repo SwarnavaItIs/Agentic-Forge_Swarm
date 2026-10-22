@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"forgeswarm/internal/agent"
 	"forgeswarm/internal/config"
 	"forgeswarm/internal/postgres"
 	"forgeswarm/internal/scheduler"
@@ -40,6 +41,15 @@ func run(logger *slog.Logger) error {
 	store, err := postgres.NewConfigured(pool, cfg.ExecutionLimits, cfg.RecoveryPolicy)
 	if err != nil {
 		return err
+	}
+	if os.Getenv("AGENT_ENABLED") == "true" {
+		pricing, e := agent.LoadPricing(os.Getenv("AGENT_PRICING_FILE"))
+		if e != nil {
+			return e
+		}
+		if e = store.ConfigureAgent(pricing); e != nil {
+			return e
+		}
 	}
 	err = scheduler.Run(ctx, store, scheduler.Settings{BatchSize: cfg.SchedulerBatchSize, Interval: cfg.SchedulerInterval, ScanTimeout: cfg.SchedulerScanTimeout}, logger)
 	logger.Info("scheduler_drained")

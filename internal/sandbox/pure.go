@@ -12,6 +12,9 @@ import (
 // its AST prevents init/TestMain/import side effects from bypassing the trusted
 // runner. This is deliberately narrower than arbitrary Go repository support.
 func pureAdd(source []byte) bool {
+	return pureFunction(source, "Add", 2)
+}
+func pureFunction(source []byte, name string, arity int) bool {
 	if len(source) == 0 || len(source) > 8192 || bytes.Contains(source, []byte("//go:")) {
 		return false
 	}
@@ -20,7 +23,7 @@ func pureAdd(source []byte) bool {
 		return false
 	}
 	fn, ok := file.Decls[0].(*ast.FuncDecl)
-	if !ok || fn.Name.Name != "Add" || fn.Recv != nil || fn.Type.TypeParams != nil || fn.Type.Params == nil || fn.Type.Results == nil || len(fn.Type.Results.List) != 1 || fn.Body == nil || len(fn.Body.List) != 1 {
+	if !ok || fn.Name.Name != name || fn.Recv != nil || fn.Type.TypeParams != nil || fn.Type.Params == nil || fn.Type.Results == nil || len(fn.Type.Results.List) != 1 || fn.Body == nil || len(fn.Body.List) != 1 {
 		return false
 	}
 	typ, ok := fn.Type.Results.List[0].Type.(*ast.Ident)
@@ -40,7 +43,7 @@ func pureAdd(source []byte) bool {
 			parameters[name.Name] = true
 		}
 	}
-	if len(parameters) != 2 {
+	if len(parameters) != arity {
 		return false
 	}
 	ret, ok := fn.Body.List[0].(*ast.ReturnStmt)

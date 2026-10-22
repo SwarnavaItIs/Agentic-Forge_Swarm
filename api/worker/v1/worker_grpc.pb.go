@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	Coordinator_PrepareRole_FullMethodName      = "/forgeswarm.worker.v1.Coordinator/PrepareRole"
 	Coordinator_RegisterWorker_FullMethodName   = "/forgeswarm.worker.v1.Coordinator/RegisterWorker"
 	Coordinator_HeartbeatWorker_FullMethodName  = "/forgeswarm.worker.v1.Coordinator/HeartbeatWorker"
 	Coordinator_SetDraining_FullMethodName      = "/forgeswarm.worker.v1.Coordinator/SetDraining"
@@ -41,6 +42,7 @@ const (
 //
 // Worker identity comes from authenticated metadata, never a request worker_id.
 type CoordinatorClient interface {
+	PrepareRole(ctx context.Context, in *AttemptRequest, opts ...grpc.CallOption) (*RoleInput, error)
 	RegisterWorker(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*Worker, error)
 	HeartbeatWorker(ctx context.Context, in *InstanceRequest, opts ...grpc.CallOption) (*Worker, error)
 	SetDraining(ctx context.Context, in *DrainRequest, opts ...grpc.CallOption) (*Worker, error)
@@ -63,6 +65,16 @@ type coordinatorClient struct {
 
 func NewCoordinatorClient(cc grpc.ClientConnInterface) CoordinatorClient {
 	return &coordinatorClient{cc}
+}
+
+func (c *coordinatorClient) PrepareRole(ctx context.Context, in *AttemptRequest, opts ...grpc.CallOption) (*RoleInput, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RoleInput)
+	err := c.cc.Invoke(ctx, Coordinator_PrepareRole_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *coordinatorClient) RegisterWorker(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*Worker, error) {
@@ -211,6 +223,7 @@ func (c *coordinatorClient) CompleteAgent(ctx context.Context, in *AgentOutcome,
 //
 // Worker identity comes from authenticated metadata, never a request worker_id.
 type CoordinatorServer interface {
+	PrepareRole(context.Context, *AttemptRequest) (*RoleInput, error)
 	RegisterWorker(context.Context, *RegisterRequest) (*Worker, error)
 	HeartbeatWorker(context.Context, *InstanceRequest) (*Worker, error)
 	SetDraining(context.Context, *DrainRequest) (*Worker, error)
@@ -235,6 +248,9 @@ type CoordinatorServer interface {
 // pointer dereference when methods are called.
 type UnimplementedCoordinatorServer struct{}
 
+func (UnimplementedCoordinatorServer) PrepareRole(context.Context, *AttemptRequest) (*RoleInput, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PrepareRole not implemented")
+}
 func (UnimplementedCoordinatorServer) RegisterWorker(context.Context, *RegisterRequest) (*Worker, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterWorker not implemented")
 }
@@ -296,6 +312,24 @@ func RegisterCoordinatorServer(s grpc.ServiceRegistrar, srv CoordinatorServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&Coordinator_ServiceDesc, srv)
+}
+
+func _Coordinator_PrepareRole_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AttemptRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinatorServer).PrepareRole(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Coordinator_PrepareRole_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinatorServer).PrepareRole(ctx, req.(*AttemptRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Coordinator_RegisterWorker_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -557,6 +591,10 @@ var Coordinator_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "forgeswarm.worker.v1.Coordinator",
 	HandlerType: (*CoordinatorServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "PrepareRole",
+			Handler:    _Coordinator_PrepareRole_Handler,
+		},
 		{
 			MethodName: "RegisterWorker",
 			Handler:    _Coordinator_RegisterWorker_Handler,
