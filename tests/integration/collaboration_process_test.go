@@ -14,6 +14,30 @@ import (
 	"time"
 )
 
+func collaborationDiagnostics(t *testing.T, f *fixture, root uuid.UUID) {
+	t.Helper()
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		rows, e := f.p2.Query(ctx, `SELECT t.task_key,a.state,a.last_error_class,a.stop_reason,a.result_metadata,COALESCE((SELECT jsonb_agg(jsonb_build_object('kind','tool','phase',s.phase,'name',s.name,'status',s.status)) FROM agent_steps s WHERE s.attempt_id=a.id),'[]'::jsonb) FROM tasks t JOIN task_attempts a ON a.task_id=t.id JOIN collab_workflows f ON f.workflow_id=t.workflow_id WHERE f.root_id=$1 ORDER BY f.version,t.position,a.attempt_number`, root)
+		if e != nil {
+			t.Log("diagnostic query unavailable")
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var key, state, last, stop string
+			var meta, steps []byte
+			if rows.Scan(&key, &state, &last, &stop, &meta, &steps) == nil {
+				t.Logf("attempt task=%s state=%s last=%s stop=%s metadata=%s steps=%s", key, state, last, stop, meta, steps)
+			}
+		}
+	})
+}
+
 func TestCollaborationRealMultiRoleParallelIntegrationAndRepair(t *testing.T) {
 	for _, scenario := range []struct {
 		name, marker, want string
@@ -37,6 +61,7 @@ func TestCollaborationRealMultiRoleParallelIntegrationAndRepair(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
+			collaborationDiagnostics(t, f, receipt.ID)
 			startAgentWorker(t, f, b, r, d, runtime)
 			until := time.Now().Add(52 * time.Second)
 			var state string
@@ -155,6 +180,7 @@ func TestCollaborationRealConflictsAndStaleReviewNeedHuman(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
+			collaborationDiagnostics(t, f, receipt.ID)
 			startAgentWorker(t, f, b, r, d, runtime)
 			until := time.Now().Add(35 * time.Second)
 			state := ""

@@ -16,3 +16,7 @@ agent-demo-fixture agent-test verify-stage-06 agent-runtime-prepare:
 .PHONY: verify-stage-07 collaboration-fixture collaboration-test dashboard-test
 verify-stage-07 collaboration-fixture collaboration-test dashboard-test:
 	$(PYTHON) scripts/dev.py $@
+
+.PHONY: verify-stage-08 github-contract-test github-live-demo
+verify-stage-08 github-contract-test github-live-demo:
+	$(PYTHON) scripts/dev.py $@

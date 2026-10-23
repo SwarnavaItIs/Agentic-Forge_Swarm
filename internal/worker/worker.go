@@ -5,6 +5,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"forgeswarm/api/worker/v1"
 	"forgeswarm/internal/agent"
@@ -131,7 +132,7 @@ func handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 				cleanupConfirmed = true
 				success = result.Success()
 			} else {
-				logger.Error("agent_execution_interrupted", "attempt_id", a.Id, "error_class", "restart_from_pinned_base")
+				logger.Error("agent_execution_interrupted", "attempt_id", a.Id, "error_class", "restart_from_pinned_base", "rpc_code", status.Code(e).String(), "policy_denied", errors.Is(e, sandbox.ErrPolicy))
 			}
 		}
 	case "noop":
@@ -189,6 +190,7 @@ func handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 			return
 		}
 		if status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded {
+			logger.Warn("diagnostic_outcome_rejected", "attempt_id", a.Id, "rpc_code", status.Code(err).String())
 			stopped()
 			return
 		}

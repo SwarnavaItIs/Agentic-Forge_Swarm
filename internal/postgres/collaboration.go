@@ -30,15 +30,22 @@ func roleTask(job agent.Job, r agent.RoleSpec, description string, deps []string
 	return workflow.TaskDefinition{Key: r.TaskKey, Kind: "agent_go", Agent: &in, Sandbox: &si, DependsOn: deps, MaxAttempts: 2, TimeoutMS: 300000}
 }
 func (s *Store) CreateProject(ctx context.Context, key string, job agent.Job, base sandbox.Snapshot, maxRounds int) (workflow.Receipt, error) {
-	in := agent.Input{Job: job, Role: &agent.RoleSpec{SchemaVersion: 1, Name: "planner", Version: 1, TaskKey: "plan", Scope: []string{}, Profile: agent.MathProfile, MaxCalls: 4}}
-	if !in.Valid() || !agent.ControlledMath(base) || agent.SnapshotDigest(base) != job.RepositoryID || base.BaseRevision != job.BaseRevision || maxRounds < 0 || maxRounds > 2 || s.agentPricing == nil {
-		return workflow.Receipt{}, workflow.ErrInvalid
-	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return workflow.Receipt{}, classify(err)
 	}
 	defer rollback(tx)
+	receipt, err := s.createProjectTx(ctx, tx, key, job, base, maxRounds)
+	if err != nil {
+		return receipt, err
+	}
+	return receipt, classify(tx.Commit(ctx))
+}
+func (s *Store) createProjectTx(ctx context.Context, tx pgx.Tx, key string, job agent.Job, base sandbox.Snapshot, maxRounds int) (workflow.Receipt, error) {
+	in := agent.Input{Job: job, Role: &agent.RoleSpec{SchemaVersion: 1, Name: "planner", Version: 1, TaskKey: "plan", Scope: []string{}, Profile: agent.MathProfile, MaxCalls: 4}}
+	if !in.Valid() || !agent.ControlledMath(base) || agent.SnapshotDigest(base) != job.RepositoryID || base.BaseRevision != job.BaseRevision || maxRounds < 0 || maxRounds > 2 || s.agentPricing == nil {
+		return workflow.Receipt{}, workflow.ErrInvalid
+	}
 	title := []rune(strings.TrimSpace(job.TaskDescription))
 	if len(title) > 80 {
 		title = title[:80]
@@ -64,7 +71,7 @@ func (s *Store) CreateProject(ctx context.Context, key string, job agent.Job, ba
 	if err != nil {
 		return receipt, classify(err)
 	}
-	return receipt, classify(tx.Commit(ctx))
+	return receipt, nil
 }
 
 func (s *Store) FinalizePlan(ctx context.Context, root uuid.UUID, version int, digest string) (workflow.Receipt, error) {

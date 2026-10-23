@@ -16,6 +16,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"forgeswarm/internal/github"
+	"forgeswarm/internal/operator"
 	"forgeswarm/internal/sandbox"
 	"forgeswarm/internal/workflow"
 	"github.com/google/uuid"
@@ -32,6 +34,9 @@ type API struct {
 	collaborationRegistry        string
 	correctionRounds             int
 	streams                      atomic.Int32
+	operatorAuth                 *operator.Auth
+	github                       *github.Client
+	imports                      importLimit
 }
 
 func New(service workflow.Service, logger *slog.Logger, requestTimeout, readyTimeout time.Duration) *API {
@@ -68,6 +73,11 @@ func (w *responseWriter) Write(b []byte) (int, error) {
 
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/session", a.session)
+	mux.HandleFunc("/v1/approvals", a.method(http.MethodGet, a.approvals))
+	mux.HandleFunc("/v1/approvals/{id}", a.approval)
+	mux.HandleFunc("/v1/github/import", a.method(http.MethodPost, a.importIssue))
+	mux.HandleFunc("/v1/github/webhook", a.method(http.MethodPost, a.webhook))
 	mux.HandleFunc("/health/live", a.method(http.MethodGet, a.live))
 	mux.HandleFunc("/health/ready", a.method(http.MethodGet, a.ready))
 	mux.HandleFunc("/v1/workflows", a.index)
@@ -116,7 +126,9 @@ func (a *API) Handler() http.Handler {
 			}
 			a.logger.InfoContext(r.Context(), "http_request", attrs...)
 		}()
-		mux.ServeHTTP(writer, r)
+		if authenticated, ok := a.authenticate(writer, r); ok {
+			mux.ServeHTTP(writer, authenticated)
+		}
 	})
 }
 

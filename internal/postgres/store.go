@@ -25,6 +25,7 @@ type Store struct {
 	policy       execution.Policy
 	random       func() float64
 	agentPricing *agent.Pricing
+	approvalTTL  time.Duration
 }
 
 func New(pool *pgxpool.Pool) *Store {

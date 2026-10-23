@@ -123,7 +123,7 @@ def build():
     run(["go", "build", "-o", BIN.parent / ("migrate.exe" if os.name == "nt" else "migrate"), "./cmd/migrate"], label="build-migrate")
     if (ROOT / "cmd/scheduler").exists():
         run(["go", "build", "-o", BIN.parent / ("scheduler.exe" if os.name == "nt" else "scheduler"), "./cmd/scheduler"], label="build-scheduler")
-    for name in ["coordinator","relay","worker","sandbox-fixture","sandbox-prepare"]:
+    for name in ["coordinator","relay","worker","sandbox-fixture","sandbox-prepare","publisher","github-test-server","operator-init"]:
         if (ROOT / "cmd" / name).exists():run(["go","build","-o",BIN.parent / (name+".exe" if os.name=="nt" else name),"./cmd/"+name],label="build-"+name)
 
 
@@ -332,6 +332,9 @@ def fmt_check():
 
 def main():
     global RECORD
+    if len(sys.argv)>1 and sys.argv[1] in {"verify-stage-08","github-contract-test","github-live-demo"}:
+        import stage08
+        stage08.command(sys.argv[1]);return
     if len(sys.argv)>1 and sys.argv[1] in {"verify-stage-07","collaboration-test","collaboration-fixture","dashboard-test"}:
         import stage07
         stage07.command(sys.argv[1]);return
@@ -362,7 +365,24 @@ def main():
         stage02.verify()
         return
     if command == "help":
-        print("Stage 07: collaboration-fixture; collaboration-test; dashboard-test; verify-stage-07 (includes full Stage 06/05/04 gate).\n"
+        print("Stage 08: github-contract-test; verify-stage-08 (full Stage 07 gate plus real approval/GitHub HTTP/browser tests).\n"
+              "Migrate additive 00008 and upgrade trusted services together. Existing migrations and normalization v1-v7 stay unchanged.\n"
+              "Generate ignored credentials: go run ./cmd/operator-init -file .cache/operator-auth.json; set OPERATOR_AUTH_FILE on API only.\n"
+              "POST /v1/session {token}: 1h HttpOnly SameSite=Strict cookie; mutations require returned csrf in X-CSRF-Token plus same Origin. Trusted CLI may use Bearer instead.\n"
+              "All /v1 reads, artifacts and controls require identity when configured; read_only cannot mutate. Persisted GitHub imports fail closed if auth configuration disappears.\n"
+              "GITHUB_CONFIG_FILE is API/publisher only: copy config/github.example.json under .cache, configure one numeric repository ID, owner/name/target and trigger actor/label.\n"
+              "Prefer repository-scoped installation_token; explicit development_token supported. Required permissions: metadata/issues read, contents/pull requests write. Token refresh is operator-managed; 401/403 stop.\n"
+              "POST /v1/github/import {issue_number}+Idempotency-Key, or HMAC SHA-256 signed issues:labeled /v1/github/webhook. Delivery UUID/raw SHA-256 dedup is durable.\n"
+              "Preparation pins commit/tree and verifies bounded root blobs (controlled math-v1, 4 KiB). No host checkout, hooks, LFS, submodules, arbitrary URLs or redirects.\n"
+              "Imported projects enter aggregate WAITING_FOR_APPROVAL with completed DAGs/no worker lease. Scheduler APPROVAL_TTL=1s..24h (default 24h), pinned using DB clock.\n"
+              "GET /v1/approvals?root=UUID&after=UUID (20/page); GET/POST /v1/approvals/{id}. Decision fields: expected_version,binding_sha256,candidate_sha256,decision,acknowledge_sensitive. Actor derives from auth.\n"
+              "Bindings pin repo/target/base/plan/candidate/tree/patch/test/review/action/policy. Sensitive paths are flagged and outside current writable fixture policy. New base/content requires a fresh reviewed import/approval.\n"
+              "Trusted publisher: go run ./cmd/publisher -repository-id ID -confirm-publish; -once -approval UUID selects one intent; -reconcile-only discovers without new writes.\n"
+              "Stable operation/branch/commit/PR marker; no update/force refs, merge, deploy or resource deletion. Uncertain outcomes reconcile first; six retries honor durable reset guidance, then manual reconciliation.\n"
+              "Cancellation/expiry prevents new writes but cannot roll back an in-flight external effect. Observed branch/PR and drift stay visible; old approval cannot authorize a new base.\n"
+              "github-live-demo requires GITHUB_CONFIG_FILE, GITHUB_LIVE_APPROVAL_ID, GITHUB_LIVE_REPOSITORY_ID and GITHUB_LIVE_CONFIRM=publish-approved-draft, plus actual session authorization.\n"
+              "Single-owner loopback only; no browser localStorage secrets. TEST_DEMO API URL is numeric loopback only; live API is fixed api.github.com over HTTPS, REST version 2026-03-10.\n\n"
+              "Stage 07: collaboration-fixture; collaboration-test; dashboard-test; verify-stage-07 (includes full Stage 06/05/04 gate).\n"
               "POST /v1/projects + Idempotency-Key: same controlled job fields as Stage 06, test_profile=math-v1. Operator CLI: agent-register -profile math-v1.\n"
               "COLLAB_ENABLED=true; COLLAB_MAX_ROUNDS=0..2 (default 2); AGENT_ENABLED=true on API, coordinator and scheduler; worker needs configured runtime.\n"
               "Migration 00007 is additive and normalization v1-v6 stays frozen; upgrade all roles together.\n"

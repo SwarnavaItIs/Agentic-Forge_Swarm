@@ -80,7 +80,7 @@ def free_port():
 
 
 @contextlib.contextmanager
-def local_services(settings):
+def local_services(settings, trusted_settings=None):
     with stage03.infrastructure() as (env, db, broker, healthy):
         private = dev.ROOT / ".cache/stage07" / uuid.uuid4().hex
         private.mkdir(parents=True)
@@ -94,11 +94,21 @@ def local_services(settings):
         dev.run([dev.BIN.parent / ("migrate.exe" if os.name == "nt" else "migrate"), "up"], env=env, label="browser-additive-migrate")
         processes, logs = [], []
         try:
-            for role in ["api", "scheduler", "coordinator", "relay", "worker"]:
+            roles = ["api", "scheduler", "coordinator", "relay", "worker"] + (["publisher"] if trusted_settings else [])
+            for role in roles:
                 log_path = private / (role + ".log")
                 log = log_path.open("wb")
-                role_env = env | ({"WORKER_TOKEN": keys["worker_a"]} if role == "worker" else {})
-                process = subprocess.Popen([str(dev.BIN.parent / (role + (".exe" if os.name == "nt" else "")))], cwd=dev.ROOT, env=role_env, stdout=log, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+                role_env = {k:v for k,v in env.items() if k not in {"GITHUB_CONFIG_FILE","OPERATOR_AUTH_FILE","GITHUB_TOKEN","GH_TOKEN","OPENAI_API_KEY"}}
+                if role == "worker":
+                    role_env["WORKER_TOKEN"] = keys["worker_a"]
+                if trusted_settings and role in {"api", "publisher"}:
+                    role_env.update(trusted_settings)
+                    if role == "publisher":
+                        role_env.pop("OPERATOR_AUTH_FILE", None)
+                args = [str(dev.BIN.parent / (role + (".exe" if os.name == "nt" else "")))]
+                if role == "publisher":
+                    args += ["-repository-id","42","-confirm-publish"]
+                process = subprocess.Popen(args, cwd=dev.ROOT, env=role_env, stdout=log, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
                 processes.append(process); logs.append((role, log_path, log))
             base = "http://127.0.0.1:" + http_port
             def ready():

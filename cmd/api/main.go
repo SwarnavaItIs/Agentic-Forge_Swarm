@@ -12,7 +12,9 @@ import (
 
 	"forgeswarm/internal/agent"
 	"forgeswarm/internal/config"
+	"forgeswarm/internal/github"
 	"forgeswarm/internal/httpapi"
+	"forgeswarm/internal/operator"
 	"forgeswarm/internal/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -55,8 +57,42 @@ func run(logger *slog.Logger) error {
 		}
 	}
 	api := httpapi.New(store, logger, cfg.RequestTimeout, cfg.ReadyTimeout).WithAgentCatalog(os.Getenv("AGENT_CATALOG"))
+	authPath, githubPath := os.Getenv("OPERATOR_AUTH_FILE"), os.Getenv("GITHUB_CONFIG_FILE")
+	if authPath != "" || githubPath != "" {
+		if !httpapi.LoopbackAddress(cfg.HTTPAddr) || authPath == "" {
+			return errors.New("authenticated controls require loopback and OPERATOR_AUTH_FILE")
+		}
+		forbidden := []string{os.Getenv("AGENT_RUNTIME_TOKEN"), os.Getenv("WORKER_TOKEN")}
+		if path := os.Getenv("RPC_KEYS_FILE"); path != "" {
+			keys, e := (config.Distributed{KeysFile: path}).WorkerKeys()
+			if e != nil {
+				return e
+			}
+			for _, v := range keys {
+				forbidden = append(forbidden, v)
+			}
+		}
+		auth, e := operator.Load(authPath, forbidden)
+		if e != nil {
+			return e
+		}
+		api.WithOperator(auth)
+		if githubPath != "" {
+			if os.Getenv("COLLAB_ENABLED") != "true" {
+				return errors.New("GitHub import requires collaboration enabled")
+			}
+			client, e := github.Load(githubPath)
+			if e != nil {
+				return e
+			}
+			if client.OperatorCredentialConflict(auth) {
+				return errors.New("GitHub service and operator credentials must differ")
+			}
+			api.WithGitHub(client)
+		}
+	}
 	var handler http.Handler = api.Handler()
-	if os.Getenv("COLLAB_ENABLED") == "true" || os.Getenv("WEB_DIR") != "" {
+	if os.Getenv("COLLAB_ENABLED") == "true" || os.Getenv("WEB_DIR") != "" || authPath != "" {
 		if !httpapi.LoopbackAddress(cfg.HTTPAddr) {
 			return errors.New("dashboard and collaboration controls require local loopback")
 		}

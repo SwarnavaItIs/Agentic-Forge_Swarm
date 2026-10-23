@@ -518,3 +518,64 @@ pre {
     padding: 15px;
   }
 }
+input {
+  font: inherit;
+  padding: 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.4rem;
+  max-width: 100%;
+}
+form {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.login-panel {
+  max-width: 650px;
+  margin: 8vh auto;
+  padding: 2rem;
+}
+.session-bar {
+  position: relative;
+  z-index: 2;
+  background: #eaf1fa;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 2rem;
+}
+.approval-panel,
+.issue-import {
+  margin-bottom: 1.5rem;
+  padding: 1.5rem;
+}
+.approval-digests {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, 3fr);
+  gap: 0.65rem 1rem;
+}
+.approval-digests dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: monospace;
+}
+.approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.status-waiting_for_approval {
+  background: #fef3c7;
+  color: #92400e;
+}
+.status-publishing {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.status-published {
+  background: #dcfce7;
+  color: #166534;
+}

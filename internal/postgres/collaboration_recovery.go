@@ -40,7 +40,7 @@ func (s *Store) ReconcileCollaboration(ctx context.Context, batch int) error {
 			return err
 		}
 	}
-	return nil
+	return s.expireApprovals(ctx, batch)
 }
 func (s *Store) reconcileProject(ctx context.Context, root uuid.UUID) error {
 	tx, err := s.pool.Begin(ctx)
@@ -139,7 +139,14 @@ func (s *Store) reconcileProject(ctx context.Context, root uuid.UUID) error {
 				return workflow.ErrState
 			}
 			if reviewed.Review.Decision == "pass" {
+				waiting, e := s.requestApprovalTx(ctx, tx, root, round+1)
+				if e != nil {
+					return e
+				}
 				next = "SUCCEEDED"
+				if waiting {
+					next = "WAITING_FOR_APPROVAL"
+				}
 			} else if round >= maximum {
 				next = "NEEDS_HUMAN"
 				reason = "correction_rounds_exhausted"
@@ -220,9 +227,12 @@ func (s *Store) cancelProject(ctx context.Context, root uuid.UUID) (workflow.Can
 	if err != nil {
 		return workflow.CancellationResult{}, classify(err)
 	}
-	if state == "PLANNING" || state == "EXECUTING" {
+	if state == "PLANNING" || state == "EXECUTING" || state == "WAITING_FOR_APPROVAL" || state == "PUBLISHING" {
 		state = "CANCELLING"
 		_, err = tx.Exec(ctx, `UPDATE collab_projects SET status='CANCELLING',reason='explicit_cancel' WHERE root_id=$1`, root)
+		if err == nil {
+			_, err = tx.Exec(ctx, `UPDATE approvals SET status='CANCELLED' WHERE root_id=$1 AND status IN ('PENDING','APPROVED')`, root)
+		}
 		if err == nil {
 			err = mutation(ctx, tx, p, p.status, []eventWrite{{"project.state", map[string]string{"status": state, "reason": "explicit_cancel"}}})
 			p.version++

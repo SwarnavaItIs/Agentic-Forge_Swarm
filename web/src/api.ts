@@ -94,12 +94,27 @@ export class APIError extends Error {
     super(message);
   }
 }
+let csrfToken = "";
+export function setSessionCSRF(value: string) {
+  csrfToken = value;
+}
 export async function api<T>(
   path: string,
   signal?: AbortSignal,
   method = "GET",
+  body?: unknown,
+  idempotencyKey?: string,
 ): Promise<T> {
-  const response = await fetch(path, { method, signal });
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (csrfToken && method !== "GET") headers["X-CSRF-Token"] = csrfToken;
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(path, {
+    method,
+    signal,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   const value = await response.json();
   if (!response.ok)
     throw new APIError(

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"forgeswarm/internal/agent"
 	"forgeswarm/internal/config"
@@ -41,6 +42,15 @@ func run(logger *slog.Logger) error {
 	store, err := postgres.NewConfigured(pool, cfg.ExecutionLimits, cfg.RecoveryPolicy)
 	if err != nil {
 		return err
+	}
+	if value := os.Getenv("APPROVAL_TTL"); value != "" {
+		ttl, e := time.ParseDuration(value)
+		if e != nil {
+			return e
+		}
+		if e = store.ConfigureApprovalTTL(ttl); e != nil {
+			return e
+		}
 	}
 	if os.Getenv("AGENT_ENABLED") == "true" {
 		pricing, e := agent.LoadPricing(os.Getenv("AGENT_PRICING_FILE"))

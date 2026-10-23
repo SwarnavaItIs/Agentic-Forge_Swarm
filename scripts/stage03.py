@@ -140,6 +140,39 @@ def smoke(recovery=False):
         def logs(name):
             _,out=dev.run(["docker","logs",processes[name]],quiet=True,label="process-observed-log")
             return out
+        @contextlib.contextmanager
+        def retry_due_gate(workflow_id):
+            # Test-only gate in this owned disposable DB. Observing RETRY_WAIT
+            # then draining/inspecting scheduler_1 used to leave scheduler_2
+            # enough time to promote READY before it was killed. Freeze only
+            # this workflow's due transition, not expiry/reaping or other jobs.
+            # The real sampled next_attempt_at/deadline/generation stay intact.
+            workflow_id=str(uuid.UUID(workflow_id))
+            gate="forgeswarm_retry_gate_"+uuid.uuid4().hex
+            lock=uuid.uuid4().int % (2**63-1)
+            session="retry-gate-"+uuid.uuid4().hex
+            sql("SELECT 1")  # verify exact disposable DB ownership before exec
+            dev.run(["docker","exec","-d","-e","PGAPPNAME="+session,db,
+                     "psql","-X","-v","ON_ERROR_STOP=1","-U","forgeswarm",
+                     "-d","forgeswarm_stage01_"+token,"-c",
+                     f"SELECT pg_advisory_lock({lock}); SELECT pg_sleep(120)"],
+                    quiet=True,label="process-owned-retry-gate")
+            try:
+                dev.poll(lambda:sql(f"SELECT count(*) FROM pg_stat_activity WHERE application_name='{session}' AND datname=current_database() AND wait_event='PgSleep'")=="1",
+                         "owned retry due gate session")
+                sql(f"""CREATE FUNCTION {gate}() RETURNS trigger LANGUAGE plpgsql AS $$
+                    BEGIN
+                      IF OLD.workflow_id='{workflow_id}'::uuid AND OLD.status='RETRY_WAIT' AND NEW.status<>'RETRY_WAIT'
+                      THEN PERFORM pg_advisory_xact_lock({lock}); END IF;
+                      RETURN NEW;
+                    END $$;
+                    CREATE TRIGGER {gate} BEFORE UPDATE ON tasks FOR EACH ROW EXECUTE FUNCTION {gate}();""")
+                yield
+            finally:
+                # Only the uniquely named backend in this verified test DB;
+                # no global process/database termination or production policy.
+                sql(f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='{session}' AND datname=current_database() AND pid<>pg_backend_pid()")
+                sql(f"DROP TRIGGER IF EXISTS {gate} ON tasks; DROP FUNCTION IF EXISTS {gate}()")
         def start(name):
             nonlocal base
             role="worker" if name.startswith("worker_") else "scheduler" if name.startswith("scheduler") else name
@@ -288,9 +321,12 @@ def smoke(recovery=False):
                 # finish between observing its claim and killing its worker,
                 # so no RETRY_WAIT would exist to test. Assertions stay strict.
                 retried,_=create("retry-wait-process-restart",[{"key":"a","kind":"delay","delay_ms":30000}])
-                owner=running_owner(retried);stop(owner,killed=True);rid=str(uuid.UUID(retried["id"]))
-                dev.poll(lambda:sql(f"SELECT count(*) FROM tasks WHERE workflow_id='{rid}' AND status='RETRY_WAIT'")=="1","persisted RETRY_WAIT after worker kill")
-                for name in ["scheduler","scheduler_2"]:stop(name,killed=True)
+                owner=running_owner(retried);rid=str(uuid.UUID(retried["id"]))
+                with retry_due_gate(rid):
+                    stop(owner,killed=True)
+                    dev.poll(lambda:sql(f"SELECT count(*) FROM tasks WHERE workflow_id='{rid}' AND status='RETRY_WAIT'")=="1","persisted RETRY_WAIT after worker kill")
+                    for name in ["scheduler","scheduler_2"]:stop(name,killed=True)
+                    assert sql(f"SELECT count(*) FROM tasks WHERE workflow_id='{rid}' AND status='RETRY_WAIT'")=="1","due transition escaped the owned process-test gate"
                 budget_query=f"SELECT next_attempt_at::text||'|'||deadline_at::text||'|'||dispatch_generation::text FROM tasks WHERE workflow_id='{rid}'"
                 budget=sql(budget_query)
                 for name in ["coordinator","api"]:stop(name)
@@ -301,7 +337,7 @@ def smoke(recovery=False):
                 for name in ["scheduler","scheduler_2",owner]:start(name)
                 finish(retried)
                 assert count(retried)==2 and count(retried,"state='SUCCEEDED'")==1
-                record("scheduler SIGKILL and control-plane restart during RETRY_WAIT",retried,{"due_deadline_generation_preserved":True})
+                record("scheduler SIGKILL and control-plane restart during RETRY_WAIT",retried,{"due_deadline_generation_preserved":True,"due_transition_gated_until_both_schedulers_stopped":True})
                 timeout_started=time.monotonic()
                 timed,_=create("diagnostic-deadline",[{"key":"a","kind":"delay","delay_ms":10000,"timeout_ms":1500}]);running_owner(timed)
                 dev.poll(lambda:graph(timed)["status"]=="FAILED","bounded diagnostic deadline")

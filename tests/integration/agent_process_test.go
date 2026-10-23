@@ -120,10 +120,11 @@ func createAgentExecutable(t *testing.T, f *fixture, d *sandbox.Docker, bad bool
 }
 func startAgentWorker(t *testing.T, f *fixture, b *broker.Broker, r *rpcFixture, d *sandbox.Docker, runtime *worker.AgentRuntime) {
 	t.Helper()
+	observed := &sandbox.CappedWriter{Limit: 64 << 10}
 	ctx, cancel := context.WithCancel(f.ctx)
 	done := make(chan error, 1)
 	go func() {
-		done <- worker.RunWithAgent(ctx, r.ca, b, r.cfg, slog.New(slog.NewJSONHandler(io.Discard, nil)), d, runtime)
+		done <- worker.RunWithAgent(ctx, r.ca, b, r.cfg, slog.New(slog.NewJSONHandler(observed, nil)), d, runtime)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -134,6 +135,9 @@ func startAgentWorker(t *testing.T, f *fixture, b *broker.Broker, r *rpcFixture,
 			}
 		case <-time.After(15 * time.Second):
 			t.Error("worker drain")
+		}
+		if t.Failed() {
+			t.Logf("bounded worker diagnostics: %s", observed.Data)
 		}
 	})
 }

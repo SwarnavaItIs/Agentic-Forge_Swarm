@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
+import { Identity } from "./Session";
+import { Approvals, ImportIssue } from "./Approvals";
 import {
   api,
   APIError,
@@ -14,7 +16,13 @@ import {
   type Summary,
 } from "./api";
 
-const terminal = new Set(["SUCCEEDED", "FAILED", "CANCELLED", "NEEDS_HUMAN"]);
+const terminal = new Set([
+  "SUCCEEDED",
+  "FAILED",
+  "CANCELLED",
+  "NEEDS_HUMAN",
+  "PUBLISHED",
+]);
 const short = (id: string) => id.slice(0, 12);
 function age(at: string) {
   const minutes = Math.max(
@@ -35,6 +43,7 @@ export function Status({ value }: { value: string }) {
   );
 }
 export function App() {
+  const identity = useContext(Identity);
   const initial = () =>
     /^#workflow\/[0-9a-f-]{36}$/.test(location.hash)
       ? location.hash.slice(10)
@@ -258,8 +267,7 @@ export function App() {
       setError(e instanceof Error ? e.message : "Cancellation failed.");
     }
   };
-  const status =
-    data?.project?.id === selected ? data.project.status : data?.detail.status;
+  const status = data?.project?.status ?? data?.detail.status;
   return (
     <div className="shell">
       <aside className="rail">
@@ -307,6 +315,7 @@ export function App() {
               </button>
             </div>
             {listError && <p role="alert">{listError}</p>}
+            <ImportIssue />
             <div className="panel">
               <div className="panel-heading">
                 <h2>Persisted workflows</h2>
@@ -396,6 +405,7 @@ export function App() {
                     onClick={() => void cancel()}
                     disabled={
                       cancelPending ||
+                      identity.role === "read_only" ||
                       terminal.has(status ?? "") ||
                       status === "CANCELLING"
                     }
@@ -419,6 +429,16 @@ export function App() {
                     {gap}
                   </p>
                 )}
+                {data.project &&
+                  [
+                    "WAITING_FOR_APPROVAL",
+                    "PUBLISHING",
+                    "PUBLISHED",
+                    "NEEDS_HUMAN",
+                    "CANCELLED",
+                  ].includes(data.project.status) && (
+                    <Approvals root={data.project.id} />
+                  )}
                 <div className="metrics">
                   <div>
                     <span>MODEL CALLS</span>

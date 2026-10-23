@@ -29,7 +29,16 @@ type Docker struct {
 	active             sync.Map
 	cleanupFailures    atomic.Uint64
 	reconciledFailures atomic.Uint64
+	command            func(context.Context, io.Reader, int, ...string) ([]byte, error)
 }
+
+func (d *Docker) call(ctx context.Context, stdin io.Reader, limit int, args ...string) ([]byte, error) {
+	if d.command != nil {
+		return d.command(ctx, stdin, limit, args...)
+	}
+	return dockerCall(ctx, stdin, limit, args...)
+}
+
 type runtimeInfo struct {
 	OSType                                         string
 	CgroupVersion                                  string
@@ -161,7 +170,7 @@ func labels(b Binding) map[string]string {
 }
 func (d *Docker) inspect(ctx context.Context, id string) (Inspection, error) {
 	var items []Inspection
-	body, err := dockerCall(ctx, nil, 128<<10, "container", "inspect", id)
+	body, err := d.call(ctx, nil, 128<<10, "container", "inspect", id)
 	if err != nil {
 		return Inspection{}, err
 	}
@@ -179,7 +188,7 @@ func owns(actual Inspection, b Binding) bool {
 	return true
 }
 func (d *Docker) exists(ctx context.Context, id string) (bool, error) {
-	body, err := dockerCall(ctx, nil, 8192, "ps", "-aq", "--no-trunc", "--filter", "id="+id)
+	body, err := d.call(ctx, nil, 8192, "ps", "-aq", "--no-trunc", "--filter", "id="+id)
 	if err != nil {
 		return false, err
 	}
@@ -425,14 +434,15 @@ func (d *Docker) Cleanup(ctx context.Context, b Binding, id string) (err error) 
 // touched. The callback clears durable cleanup evidence only after removal.
 func (d *Docker) Reconcile(ctx context.Context, worker string, ack func(context.Context, Binding) error) (err error) {
 	observed := d.cleanupFailures.Load()
+	teardownPending := false
 	defer func() {
 		if err != nil {
 			d.Suspend()
-		} else {
+		} else if !teardownPending {
 			d.reconciledFailures.Store(observed)
 		}
 	}()
-	body, err := dockerCall(ctx, nil, 8192, "ps", "-aq", "--no-trunc", "--filter", "label=forgeswarm.installation="+d.Installation.String(), "--filter", "label=forgeswarm.worker="+worker, "--filter", "label=forgeswarm.resource=sandbox-v1")
+	body, err := d.call(ctx, nil, 8192, "ps", "-aq", "--no-trunc", "--filter", "label=forgeswarm.installation="+d.Installation.String(), "--filter", "label=forgeswarm.worker="+worker, "--filter", "label=forgeswarm.resource=sandbox-v1")
 	if err != nil {
 		return err
 	}
@@ -443,6 +453,13 @@ func (d *Docker) Reconcile(ctx context.Context, worker string, ack func(context.
 	for _, id := range ids {
 		i, e := d.inspect(ctx, id)
 		if e != nil {
+			// A normal teardown may remove a listed container before inspect.
+			// Only a successful daemon query proving absence makes that benign;
+			// an unavailable daemon or still-present resource remains uncertain.
+			exists, probeErr := d.exists(ctx, id)
+			if probeErr == nil && !exists {
+				continue
+			}
 			return e
 		}
 		l := i.Config.Labels
@@ -458,7 +475,11 @@ func (d *Docker) Reconcile(ctx context.Context, worker string, ack func(context.
 		}
 		if running, active := d.active.Load(b.Attempt); active {
 			if !running.(bool) {
-				return fmt.Errorf("sandbox teardown still in progress")
+				// The local owner is already performing bounded teardown. Do not
+				// mistake normal cleanup for a failure that aborts another live
+				// agent tool. Also do not clear earlier cleanup uncertainty until
+				// a later scan confirms this teardown has finished.
+				teardownPending = true
 			}
 			continue
 		}

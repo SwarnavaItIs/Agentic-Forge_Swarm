@@ -1,0 +1,8 @@
+{
+  "repository": {"id": 1, "owner": "owner", "name": "controlled-fixture", "target_branch": "main"},
+  "credential_mode": "development_token",
+  "token": "",
+  "webhook_secret": "",
+  "trigger_label": "forgeswarm",
+  "trigger_actor": "owner"
+}
