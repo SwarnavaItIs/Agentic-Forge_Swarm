@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"forgeswarm/internal/config"
+	"forgeswarm/internal/telemetry/rpctrace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -14,7 +15,7 @@ import (
 )
 
 func ServerOptions(c config.Distributed, keys map[string]string) ([]grpc.ServerOption, error) {
-	opts := []grpc.ServerOption{grpc.UnaryInterceptor(Auth(keys, c.RPCTimeout)), grpc.MaxRecvMsgSize(64 << 10), grpc.MaxSendMsgSize(64 << 10), grpc.MaxConcurrentStreams(100)}
+	opts := []grpc.ServerOption{grpc.StatsHandler(rpctrace.Server()), grpc.UnaryInterceptor(Auth(keys, c.RPCTimeout)), grpc.MaxRecvMsgSize(64 << 10), grpc.MaxSendMsgSize(64 << 10), grpc.MaxConcurrentStreams(100)}
 	if c.InsecureLocal {
 		if !config.Loopback(c.RPCAddr) {
 			return nil, errors.New("plaintext RPC must bind loopback")
@@ -53,5 +54,5 @@ func Dial(c config.Distributed) (*grpc.ClientConn, error) {
 	attach := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		return invoke(metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+c.WorkerToken), method, req, reply, cc, opts...)
 	}
-	return grpc.NewClient(c.RPCAddr, grpc.WithTransportCredentials(transport), grpc.WithUnaryInterceptor(attach), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<10), grpc.MaxCallSendMsgSize(64<<10)))
+	return grpc.NewClient(c.RPCAddr, grpc.WithStatsHandler(rpctrace.Client()), grpc.WithTransportCredentials(transport), grpc.WithUnaryInterceptor(attach), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<10), grpc.MaxCallSendMsgSize(64<<10)))
 }

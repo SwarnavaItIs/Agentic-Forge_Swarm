@@ -9,6 +9,7 @@ import (
 	"forgeswarm/internal/config"
 	"forgeswarm/internal/github"
 	"forgeswarm/internal/postgres"
+	"forgeswarm/internal/telemetry/setup"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
@@ -19,6 +20,8 @@ import (
 )
 
 func main() {
+	stopTelemetry := setup.Init("publisher")
+	defer stopTelemetry()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(logger); err != nil {
 		logger.Error("publisher_stopped", "error_class", "configuration_or_publication_failure")

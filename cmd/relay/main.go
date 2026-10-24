@@ -6,6 +6,7 @@ import (
 	"forgeswarm/internal/config"
 	"forgeswarm/internal/postgres"
 	"forgeswarm/internal/relay"
+	"forgeswarm/internal/telemetry/setup"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 	"os"
@@ -14,6 +15,8 @@ import (
 )
 
 func main() {
+	stopTelemetry := setup.Init("relay")
+	defer stopTelemetry()
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if run(log) != nil {
 		log.Error("relay_stopped", "error_class", "configuration_or_startup_failure")

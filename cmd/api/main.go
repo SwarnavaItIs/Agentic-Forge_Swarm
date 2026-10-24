@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"forgeswarm/internal/telemetry/setup"
 	"log/slog"
 	"net/http"
 	"os"
@@ -20,6 +21,8 @@ import (
 )
 
 func main() {
+	stopTelemetry := setup.Init("api")
+	defer stopTelemetry()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(logger); err != nil {
 		logger.Error("api_stopped", "error_class", "startup_or_serve_failure")
@@ -46,6 +49,12 @@ func run(logger *slog.Logger) error {
 	store, err := postgres.NewConfigured(pool, cfg.ExecutionLimits, cfg.RecoveryPolicy)
 	if err != nil {
 		return err
+	}
+	if os.Getenv("TELEMETRY_ENABLED") == "true" {
+		registration, e := store.RegisterOperationalMetrics()
+		if e == nil {
+			defer registration.Unregister()
+		}
 	}
 	if os.Getenv("AGENT_ENABLED") == "true" {
 		pricing, e := agent.LoadPricing(os.Getenv("AGENT_PRICING_FILE"))

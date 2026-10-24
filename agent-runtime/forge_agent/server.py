@@ -8,6 +8,7 @@ import grpc
 
 from forge_agent.provider import Budget, Disabled, OpenAI, Provider, ScriptedDemo
 from forge_agent.schema import Next, RoleNext, unique_object
+from forge_agent.telemetry import provider_span, setup as setup_telemetry
 from generated import agent_pb2, agent_pb2_grpc
 
 
@@ -43,21 +44,29 @@ class Runtime(agent_pb2_grpc.RuntimeServicer):
             value = (RoleNext if collaboration else Next).model_validate(
                 json.loads(request.context_json, object_pairs_hook=unique_object)
             )
+            if (
+                isinstance(value, Next)
+                and value.evaluation_role is not None
+                and os.environ.get("AGENT_EVAL_ENABLED") != "true"
+            ):
+                raise ValueError("evaluation runtime explicitly disabled")
         except (ValueError, RecursionError):
             await context.abort(
                 grpc.StatusCode.INVALID_ARGUMENT, "invalid next-action input"
             )
         async with self.slots:
             async with asyncio.timeout(max(0.001, context.time_remaining())):
-                reply = await self.provider.generate(
-                    value,
-                    Budget(
-                        value.next.max_output_tokens
-                        if isinstance(value, RoleNext)
-                        else value.max_output_tokens,
-                        min(9.5, context.time_remaining()),
-                    ),
-                )
+                with provider_span(context.invocation_metadata()) as span:
+                    reply = await self.provider.generate(
+                        value,
+                        Budget(
+                            value.next.max_output_tokens
+                            if isinstance(value, RoleNext)
+                            else value.max_output_tokens,
+                            min(9.5, context.time_remaining()),
+                        ),
+                    )
+                    span.set_attribute("outcome", reply.status)
                 wire = reply.model_dump_json().encode()
                 if len(wire) > 32768:
                     await context.abort(
@@ -66,7 +75,23 @@ class Runtime(agent_pb2_grpc.RuntimeServicer):
                 return agent_pb2.NextReply(response_json=wire)
 
 
+def runtime_server(provider: Provider, token: str) -> Any:
+    # grpcio can still count a completed RPC while its client has already sent
+    # the next request. Keep bounded admission headroom for two clients; the
+    # Runtime semaphore independently limits actual provider work to two calls.
+    server = grpc.aio.server(
+        options=[
+            ("grpc.max_receive_message_length", 32768),
+            ("grpc.max_send_message_length", 32768),
+        ],
+        maximum_concurrent_rpcs=4,
+    )
+    agent_pb2_grpc.add_RuntimeServicer_to_server(Runtime(provider, token), server)  # type: ignore[no-untyped-call]
+    return server
+
+
 async def serve() -> None:
+    setup_telemetry()
     token = os.environ.get("AGENT_RUNTIME_TOKEN", "")
     selected = os.environ.get("AGENT_PROVIDER", "disabled")
     provider: Provider = Disabled()
@@ -85,15 +110,7 @@ async def serve() -> None:
         provider = OpenAI(os.environ.get("OPENAI_API_KEY", ""), config["model"])
     elif selected != "disabled":
         raise ValueError("unknown provider; no fallback")
-    server = grpc.aio.server(
-        options=[
-            ("grpc.max_receive_message_length", 32768),
-            ("grpc.max_send_message_length", 32768),
-        ],
-        maximum_concurrent_rpcs=2,
-    )
-    # grpcio-tools 1.76 generates an unannotated registration helper.
-    agent_pb2_grpc.add_RuntimeServicer_to_server(Runtime(provider, token), server)  # type: ignore[no-untyped-call]
+    server = runtime_server(provider, token)
     # The packaged container has no host mounts or control-plane credentials.
     # Plaintext is restricted to explicit local mode and a loopback host publish.
     if os.environ.get("AGENT_INSECURE_LOCAL") != "true":

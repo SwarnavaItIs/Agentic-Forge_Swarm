@@ -6,6 +6,7 @@ import (
 	"errors"
 	"forgeswarm/internal/sandbox"
 	"github.com/google/uuid"
+	"google.golang.org/grpc/status"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -29,6 +30,8 @@ func Run(ctx context.Context, in Input, attempt uuid.UUID, generation int64, bas
 		return out, sandbox.ErrPolicy
 	}
 	call, cancel := context.WithTimeout(ctx, 90*time.Second)
+	g, finishTelemetry := instrumentGateway(g)
+	defer finishTelemetry()
 	defer cancel()
 	out = Outcome{Status: "failed", Base: in.RepositoryID, BaseRevision: in.BaseRevision}
 	defer func() { out.Candidate = w.Digest(); out.Patch = w.Patch() }()
@@ -68,7 +71,7 @@ func Run(ctx context.Context, in Input, attempt uuid.UUID, generation int64, bas
 		reply, e := g.Next(providerCtx, request)
 		done()
 		if e != nil {
-			reply = Reply{Status: "provider_error", Provider: "unknown", Model: "unknown"}
+			reply = Reply{Status: "provider_error", Provider: "unknown", Model: "runtime_rpc_" + status.Code(e).String()}
 		}
 		if !ValidReply(reply) || reply.Status == "ok" && reply.Action == nil {
 			reply = Reply{Status: "invalid_response", Provider: "unknown", Model: "unknown"}

@@ -13,6 +13,7 @@ import (
 	"forgeswarm/internal/config"
 	"forgeswarm/internal/execution"
 	"forgeswarm/internal/sandbox"
+	"forgeswarm/internal/telemetry"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/grpc/codes"
@@ -55,6 +56,12 @@ func HandleWithSandbox(ctx context.Context, client workerv1.CoordinatorClient, b
 	handle(ctx, client, b, c, instance, msg, logger, driver, nil)
 }
 func handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Broker, c config.Distributed, instance uuid.UUID, msg jetstream.Msg, logger *slog.Logger, driver *sandbox.Docker, runtime *AgentRuntime) {
+	ctx, deliverySpan := telemetry.Linked(ctx, "broker.consume", msg.Headers().Get("traceparent"))
+	deliveryStarted := time.Now()
+	if metadata, e := msg.Metadata(); e == nil {
+		telemetry.Delivery(ctx, metadata.NumDelivered > 1)
+	}
+	defer func() { telemetry.Finish(ctx, deliverySpan, "broker.consume", deliveryStarted, "ok") }()
 	n, err := execution.DecodeNotification(msg.Data())
 	if err != nil {
 		call, done := context.WithTimeout(ctx, c.RPCTimeout)
@@ -85,6 +92,10 @@ func handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 	_ = msg.DoubleAck(call)
 	done()
 	owned := &workerv1.AttemptRequest{InstanceId: instance.String(), AttemptId: a.Id, Generation: a.Generation}
+	ctx, attemptSpan := telemetry.Start(ctx, "attempt.run", telemetry.IDs(a.WorkflowId, a.TaskId, a.Id)...)
+	attemptStarted := time.Now()
+	attemptOutcome := "incomplete"
+	defer func() { telemetry.Finish(ctx, attemptSpan, "attempt.run", attemptStarted, attemptOutcome) }()
 	stopped := func() {
 		stopCtx, stopDone := context.WithTimeout(context.Background(), c.RPCTimeout)
 		defer stopDone()
@@ -98,7 +109,7 @@ func handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 		return
 	}
 	// Even an ambiguous broker ack does not revoke an already-durable claim.
-	logger.Info("diagnostic_started", "attempt_id", a.Id, "task_id", a.TaskId, "generation", a.Generation)
+	logger.Info("diagnostic_started", "attempt_id", a.Id, "task_id", a.TaskId, "generation", a.Generation, "trace_id", telemetry.TraceID(ctx))
 	execCtx, cancelExec := context.WithDeadline(ctx, a.DeadlineAt.AsTime())
 	defer cancelExec()
 	renewCtx, stopRenew := context.WithCancel(ctx)
@@ -162,6 +173,7 @@ func handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 		return
 	}
 	if execCtx.Err() != nil || ctx.Err() != nil {
+		attemptOutcome = "cancelled"
 		stopped()
 		logger.Info("diagnostic_stopped", "attempt_id", a.Id, "reason", "lease_cancel_or_deadline")
 		return
@@ -186,6 +198,10 @@ func handle(ctx context.Context, client workerv1.CoordinatorClient, b *broker.Br
 		}
 		done()
 		if err == nil {
+			attemptOutcome = "failed"
+			if success {
+				attemptOutcome = "ok"
+			}
 			logger.Info("diagnostic_finished", "attempt_id", a.Id, "generation", a.Generation)
 			return
 		}

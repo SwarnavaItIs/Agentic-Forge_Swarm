@@ -11,6 +11,7 @@ import (
 
 	"forgeswarm/internal/agent"
 	"forgeswarm/internal/execution"
+	"forgeswarm/internal/telemetry"
 	"forgeswarm/internal/workflow"
 	"forgeswarm/migrations"
 	"github.com/google/uuid"
@@ -155,9 +156,9 @@ func (s *Store) createTx(ctx context.Context, tx pgx.Tx, key string, in workflow
 		return workflow.Receipt{}, err
 	}
 	var receipt workflow.Receipt
-	err = tx.QueryRow(ctx, `INSERT INTO workflows(id,name,status,version,creation_key,request_hash,request_schema_version,deadline_at)
-		VALUES($1,$2,'PENDING',1,$3,$4,$5,$6) ON CONFLICT (creation_key) DO NOTHING RETURNING id,created_at`,
-		id, in.Name, key, hash[:], workflow.RequestSchemaVersion, deadline).Scan(&receipt.ID, &receipt.CreatedAt)
+	err = tx.QueryRow(ctx, `INSERT INTO workflows(id,name,status,version,creation_key,request_hash,request_schema_version,deadline_at,traceparent)
+		VALUES($1,$2,'PENDING',1,$3,$4,$5,$6,$7) ON CONFLICT (creation_key) DO NOTHING RETURNING id,created_at`,
+		id, in.Name, key, hash[:], workflow.RequestSchemaVersion, deadline, telemetry.Parent(ctx)).Scan(&receipt.ID, &receipt.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// This MUST be a separate Read Committed statement: the winning row may
 		// not have been visible to the INSERT's original snapshot.

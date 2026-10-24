@@ -199,6 +199,7 @@ class CollabProposal(Strict):
 
 
 class Next(Strict):
+    evaluation_role: Literal["planner", "developer", "reviewer"] | None = None
     schema_version: Literal[1]
     attempt_id: str
     generation: Annotated[int, Field(ge=1)]
@@ -231,6 +232,75 @@ class RoleNext(Strict):
     base_revision: Annotated[str, Field(pattern=r"^([0-9a-f]{40}|[0-9a-f]{64})$")]
 
 
+class EvalPatch(Strict):
+    path: Literal["solution.go", "visible_test.go"]
+    before: Annotated[str, Field(min_length=1, max_length=8192)]
+    after: Annotated[str, Field(max_length=8192)]
+    workspace_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class EvalFinish(Strict):
+    decision: Literal["pass", "reject"]
+    notes: Annotated[str, Field(max_length=500)]
+
+
+class EvalInspectAction(Strict):
+    schema_version: Literal[1]
+    id: str
+    tool: Literal["list_tree", "status", "diff"]
+    args: Empty
+
+
+class EvalPatchAction(Strict):
+    schema_version: Literal[1]
+    id: str
+    tool: Literal["apply_patch"]
+    args: EvalPatch
+
+
+class EvalTest(Strict):
+    profile: Annotated[
+        str,
+        Field(pattern=r"^eval:(add|health|port|wrap|counter|regression|runes|method)$"),
+    ]
+
+
+class EvalTestAction(Strict):
+    schema_version: Literal[1]
+    id: str
+    tool: Literal["run_test_profile"]
+    args: EvalTest
+
+
+class EvalFinalAction(Strict):
+    schema_version: Literal[1]
+    id: str
+    tool: Literal["final"]
+    args: EvalFinish
+
+
+EvalAction = Annotated[
+    EvalInspectAction
+    | ReadAction
+    | SearchAction
+    | EvalPatchAction
+    | EvalTestAction
+    | EvalFinalAction,
+    Field(discriminator="tool"),
+]
+
+
+class EvalProposal(Strict):
+    action: EvalAction
+
+    @field_validator("action")
+    @classmethod
+    def valid_id(cls, value: EvalAction) -> EvalAction:
+        if UUID(value.id).int == 0:
+            raise ValueError("nonzero action identity required")
+        return value
+
+
 class Reply(Strict):
     status: Literal[
         "ok",
@@ -240,7 +310,7 @@ class Reply(Strict):
         "rate_limited",
         "provider_error",
     ]
-    action: Action | CollabAction | None = None
+    action: Action | CollabAction | EvalAction | None = None
     provider: str
     model: str
     request_id: str = ""
@@ -271,3 +341,9 @@ def parse_collaboration(raw: str) -> CollabProposal:
     return CollabProposal.model_validate(
         json.loads(raw, object_pairs_hook=unique_object)
     )
+
+
+def parse_evaluation(raw: str) -> EvalProposal:
+    if len(raw.encode()) > 16384:
+        raise ValueError("response ceiling")
+    return EvalProposal.model_validate(json.loads(raw, object_pairs_hook=unique_object))

@@ -8,6 +8,7 @@ import (
 	"forgeswarm/internal/config"
 	"forgeswarm/internal/postgres"
 	"forgeswarm/internal/rpc"
+	"forgeswarm/internal/telemetry/setup"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 	"log/slog"
@@ -19,6 +20,8 @@ import (
 )
 
 func main() {
+	stopTelemetry := setup.Init("coordinator")
+	defer stopTelemetry()
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if run(log) != nil {
 		log.Error("coordinator_stopped", "error_class", "configuration_or_serve_failure")

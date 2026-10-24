@@ -20,3 +20,7 @@ verify-stage-07 collaboration-fixture collaboration-test dashboard-test:
 .PHONY: verify-stage-08 github-contract-test github-live-demo
 verify-stage-08 github-contract-test github-live-demo:
 	$(PYTHON) scripts/dev.py $@
+
+.PHONY: observability-up eval-fixture eval-real verify-stage-09
+observability-up eval-fixture eval-real verify-stage-09:
+	$(PYTHON) scripts/dev.py $@

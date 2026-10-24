@@ -80,7 +80,7 @@ def free_port():
 
 
 @contextlib.contextmanager
-def local_services(settings, trusted_settings=None):
+def local_services(settings, trusted_settings=None, control=None, telemetry=False):
     with stage03.infrastructure() as (env, db, broker, healthy):
         private = dev.ROOT / ".cache/stage07" / uuid.uuid4().hex
         private.mkdir(parents=True)
@@ -92,6 +92,8 @@ def local_services(settings, trusted_settings=None):
         http_port, rpc_port = free_port(), free_port()
         env = env | {"DATABASE_URL": env["TEST_DATABASE_URL"], "HTTP_ADDR": "127.0.0.1:" + http_port, "RPC_ADDR": "127.0.0.1:" + rpc_port, "INSECURE_LOCAL": "true", "RPC_KEYS_FILE": str(private / "keys.json"), "NATS_URL": "nats://127.0.0.1:" + port.strip().rsplit(":", 1)[1], "NATS_TOKEN": env["TEST_NATS_TOKEN"], "WORKER_CAPACITY": "2", "WORKER_MAX_CAPACITY": "2", "TOTAL_CAPACITY": "2", "SCHEDULER_INTERVAL": "100ms", "SCHEDULER_SCAN_TIMEOUT": "2s", "SANDBOX_ENABLED": "true", "SANDBOX_INSTALLATION_ID": str(uuid.uuid4()), "SANDBOX_FIXTURE_REGISTRY": str(registry), "SANDBOX_HELPER": str(stage05.HELPER), "AGENT_ENABLED": "true", "AGENT_CATALOG": str(catalog), "AGENT_PRICING_FILE": str(dev.ROOT / "config/agent-pricing.json"), "AGENT_RUNTIME_ADDR": settings["TEST_AGENT_RUNTIME_ADDR"], "AGENT_RUNTIME_TOKEN": settings["TEST_AGENT_RUNTIME_TOKEN"], "AGENT_INSECURE_LOCAL": "true", "COLLAB_ENABLED": "true", "COLLAB_MAX_ROUNDS": "2", "WEB_DIR": str(dev.ROOT / "web/dist")}
         dev.run([dev.BIN.parent / ("migrate.exe" if os.name == "nt" else "migrate"), "up"], env=env, label="browser-additive-migrate")
+        if telemetry:
+            env.update({"TELEMETRY_ENABLED":"true","TELEMETRY_SAMPLE_RATIO":"1","OTEL_EXPORTER_OTLP_ENDPOINT":"127.0.0.1:4317"})
         processes, logs = [], []
         try:
             roles = ["api", "scheduler", "coordinator", "relay", "worker"] + (["publisher"] if trusted_settings else [])
@@ -99,6 +101,8 @@ def local_services(settings, trusted_settings=None):
                 log_path = private / (role + ".log")
                 log = log_path.open("wb")
                 role_env = {k:v for k,v in env.items() if k not in {"GITHUB_CONFIG_FILE","OPERATOR_AUTH_FILE","GITHUB_TOKEN","GH_TOKEN","OPENAI_API_KEY"}}
+                if telemetry:
+                    role_env["TELEMETRY_SERVICE_NAME"]="worker_a" if role=="worker" else role
                 if role == "worker":
                     role_env["WORKER_TOKEN"] = keys["worker_a"]
                 if trusted_settings and role in {"api", "publisher"}:
@@ -110,6 +114,8 @@ def local_services(settings, trusted_settings=None):
                     args += ["-repository-id","42","-confirm-publish"]
                 process = subprocess.Popen(args, cwd=dev.ROOT, env=role_env, stdout=log, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
                 processes.append(process); logs.append((role, log_path, log))
+                if control is not None and role=="worker":
+                    control.update({"worker":process,"args":args,"env":role_env,"log":log,"processes":processes})
             base = "http://127.0.0.1:" + http_port
             def ready():
                 try:

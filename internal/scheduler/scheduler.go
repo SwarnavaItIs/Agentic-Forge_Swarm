@@ -10,6 +10,7 @@ import (
 
 	"forgeswarm/internal/execution"
 	"forgeswarm/internal/postgres"
+	"forgeswarm/internal/telemetry"
 )
 
 type Store interface {
@@ -31,6 +32,8 @@ func Run(ctx context.Context, store Store, settings Settings, logger *slog.Logge
 			return nil
 		}
 		scanCtx, cancel := context.WithTimeout(ctx, settings.ScanTimeout)
+		scanCtx, span := telemetry.Start(scanCtx, "scheduler.scan")
+		started := time.Now()
 		result, err := store.ReconcileBatch(scanCtx, settings.BatchSize)
 		if err == nil {
 			if collaboration, ok := store.(interface {
@@ -39,6 +42,7 @@ func Run(ctx context.Context, store Store, settings Settings, logger *slog.Logge
 				err = collaboration.ReconcileCollaboration(scanCtx, settings.BatchSize)
 			}
 		}
+		telemetry.End(scanCtx, span, "scheduler.scan", started, err)
 		cancel()
 		if ctx.Err() != nil {
 			return nil

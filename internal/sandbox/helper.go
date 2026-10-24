@@ -71,6 +71,9 @@ func ExecuteHelper(ctx context.Context, p Payload) (Result, error) {
 		if p.Profile == "sum-v1" {
 			return executeProtected(ctx, r, s)
 		}
+		if strings.HasPrefix(p.Profile, "eval:") {
+			return executeEvaluation(ctx, r, s, p.Profile)
+		}
 		return executeMath(ctx, r, s, p.Profile)
 	}
 	call, cancel := context.WithTimeout(ctx, time.Duration(r.Policy.TimeoutMS)*time.Millisecond)

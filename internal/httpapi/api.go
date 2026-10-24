@@ -19,8 +19,10 @@ import (
 	"forgeswarm/internal/github"
 	"forgeswarm/internal/operator"
 	"forgeswarm/internal/sandbox"
+	"forgeswarm/internal/telemetry"
 	"forgeswarm/internal/workflow"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 const MaxBodyBytes = 64 << 10
@@ -98,6 +100,9 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { a.fail(w, r, 404, "not_found", "Resource not found.") })
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		parent := telemetry.Propagator{}.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+		traced, span := telemetry.Start(parent, "http.request")
+		r = r.WithContext(traced)
 		meta := &requestInfo{id: uuid.NewString()}
 		r = r.WithContext(context.WithValue(r.Context(), infoKey{}, meta))
 		timeout := a.requestTimeout
@@ -118,6 +123,15 @@ func (a *API) Handler() http.Handler {
 				route = "unmatched"
 			}
 			attrs := []any{"request_id", meta.id, "route", route, "method", r.Method, "duration_ms", time.Since(start).Milliseconds(), "status", writer.status}
+			attrs = append(attrs, "trace_id", telemetry.TraceID(r.Context()))
+			outcome := "2xx"
+			if writer.status >= 400 {
+				outcome = "4xx"
+			}
+			if writer.status >= 500 {
+				outcome = "5xx"
+			}
+			telemetry.Finish(r.Context(), span, "http.request", start, outcome)
 			if meta.workflowID != "" {
 				attrs = append(attrs, "workflow_id", meta.workflowID)
 			}

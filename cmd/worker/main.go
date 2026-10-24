@@ -9,6 +9,7 @@ import (
 	"forgeswarm/internal/config"
 	"forgeswarm/internal/rpc"
 	"forgeswarm/internal/sandbox"
+	"forgeswarm/internal/telemetry/setup"
 	"forgeswarm/internal/worker"
 	"github.com/google/uuid"
 	"log/slog"
@@ -19,6 +20,8 @@ import (
 )
 
 func main() {
+	stopTelemetry := setup.Init("worker")
+	defer stopTelemetry()
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if run(log) != nil {
 		log.Error("worker_stopped", "error_class", "configuration_or_startup_failure")

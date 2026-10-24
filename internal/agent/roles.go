@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"forgeswarm/internal/sandbox"
+	"forgeswarm/internal/telemetry"
 	"github.com/google/uuid"
+	"google.golang.org/grpc/status"
 	"slices"
 	"strings"
 	"time"
@@ -71,6 +73,22 @@ func RunRole(ctx context.Context, in Input, attempt uuid.UUID, generation int64,
 		return out, sandbox.ErrPolicy
 	}
 	role := *in.Role
+	var finishTelemetry func()
+	g.Gateway, finishTelemetry = instrumentGateway(g.Gateway)
+	defer finishTelemetry()
+	nextRole := g.NextRole
+	g.NextRole = func(ctx context.Context, n RoleNext) (Reply, error) {
+		ctx, span := telemetry.Start(ctx, "model.call")
+		started := time.Now()
+		reply, e := nextRole(ctx, n)
+		telemetry.Model(ctx, reply.Provider, reply.InputTokens, reply.OutputTokens, time.Since(started))
+		outcome := "ok"
+		if e != nil || reply.Status != "ok" {
+			outcome = "provider_error"
+		}
+		telemetry.Finish(ctx, span, "model.call", started, outcome)
+		return reply, e
+	}
 	call, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	candidate := CloneSnapshot(work.Snapshot)
@@ -193,7 +211,7 @@ func RunRole(ctx context.Context, in Input, attempt uuid.UUID, generation int64,
 		reply, e := g.NextRole(request, RoleNext{n, role, in.RepositoryID, in.BaseRevision})
 		done()
 		if e != nil {
-			reply = Reply{Status: "provider_error", Provider: "unknown", Model: "unknown"}
+			reply = Reply{Status: "provider_error", Provider: "unknown", Model: "runtime_rpc_" + status.Code(e).String()}
 		}
 		if !ValidReply(reply) {
 			reply = Reply{Status: "invalid_response", Provider: "unknown", Model: "unknown"}

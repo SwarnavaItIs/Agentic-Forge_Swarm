@@ -1,0 +1,49 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 1
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+    spike_limit_mib: 16
+  batch:
+    timeout: 200ms
+    send_batch_size: 32
+    send_batch_max_size: 64
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+    timeout: 500ms
+    retry_on_failure:
+      enabled: false
+    sending_queue:
+      enabled: true
+      queue_size: 64
+      num_consumers: 1
+  prometheus:
+    endpoint: 0.0.0.0:9464
+    metric_expiration: 10s
+    resource_to_telemetry_conversion:
+      enabled: true
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: warn
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]

@@ -1,0 +1,529 @@
+{
+  "uid": "forgeswarm-stage09",
+  "title": "ForgeSwarm operational diagnosis",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "tags": [
+    "forgeswarm",
+    "local"
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Admission / ready / claim p95",
+      "description": "24h durable projections. Empty populations are omitted.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "forgeswarm-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "forgeswarm_recorded_duration_quantile_seconds{quantile=\"p95\",measurement=~\"admission_to_ready|ready_to_claim\"}",
+          "legendFormat": "{{state}}{{measurement}}{{operation}}{{outcome}}{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Attempt / logical task / workflow p95",
+      "description": "Includes completed failed, lost, cancelled and blocked outcomes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "forgeswarm-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "forgeswarm_recorded_duration_quantile_seconds{quantile=\"p95\",measurement=~\"attempt|task|workflow\"}",
+          "legendFormat": "{{state}}{{measurement}}{{operation}}{{outcome}}{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Active and available workers",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "forgeswarm-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "forgeswarm_state_workers",
+          "legendFormat": "{{state}}{{measurement}}{{operation}}{{outcome}}{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Active / expired leases",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "forgeswarm-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "forgeswarm_state_leases",
+          "legendFormat": "{{state}}{{measurement}}{{operation}}{{outcome}}{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Infrastructure retries / expired attempts",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "forgeswarm-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{__name__=~\"forgeswarm_state_retries|forgeswarm_state_expired_attempts\"}",
+          "legendFormat": "{{state}}{{measurement}}{{operation}}{{outcome}}{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Pending outbox / oldest age",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "forgeswarm-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{__name__=~\"forgeswarm_state_outbox|forgeswarm_state_outbox_oldest_seconds\"}",
+          "legendFormat": "{{state}}{{measurement}}{{operation}}{{outcome}}{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Logical tasks / attempts by outcome",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "forgeswarm-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{__name__=~\"forgeswarm_state_tasks|forgeswarm_state_attempts\"}",
+          "legendFormat": "{{state}}{{measurement}}{{operation}}{{outcome}}{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Process operation latency p95",
+      "description": "Fixed histogram buckets; all outcomes included. Counters reset on process restart.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "forgeswarm-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by(le,operation)(rate(forgeswarm_operation_duration_seconds_bucket[2m])))",
+          "legendFormat": "{{state}}{{measurement}}{{operation}}{{outcome}}{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Model latency p95",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "forgeswarm-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by(le,provider)(rate(forgeswarm_model_latency_seconds_bucket[2m])))",
+          "legendFormat": "{{state}}{{measurement}}{{operation}}{{outcome}}{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Reported model tokens",
+      "description": "Provider-reported tokens; unknown usage is omitted and counted separately.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "forgeswarm-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(forgeswarm_model_tokens_total[2m])",
+          "legendFormat": "{{state}}{{measurement}}{{operation}}{{outcome}}{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Estimated charge / unknown usage",
+      "description": "Charge is a conservative USD estimate, not an invoice; unknown usage stays explicit.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "forgeswarm-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{__name__=~\"forgeswarm_state_reserved_cost_usd_USD|forgeswarm_state_unknown_usage_calls\"}",
+          "legendFormat": "{{state}}{{measurement}}{{operation}}{{outcome}}{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Approval / publication states",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "forgeswarm-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{__name__=~\"forgeswarm_state_approvals|forgeswarm_state_publications\"}",
+          "legendFormat": "{{state}}{{measurement}}{{operation}}{{outcome}}{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Database telemetry available",
+      "description": "0 indicates a bounded observation failure; it does not stop workflow commits.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "forgeswarm-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "forgeswarm_database_up",
+          "legendFormat": "{{state}}{{measurement}}{{operation}}{{outcome}}{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Repair rounds / transport republications",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "forgeswarm-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{__name__=~\"forgeswarm_state_repair_rounds|forgeswarm_state_broker_republications\"}",
+          "legendFormat": "{{state}}{{measurement}}{{operation}}{{outcome}}{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    }
+  ],
+  "links": [
+    {
+      "title": "Local Jaeger traces",
+      "url": "http://127.0.0.1:16686",
+      "targetBlank": true
+    }
+  ]
+}

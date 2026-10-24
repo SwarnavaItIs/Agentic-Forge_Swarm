@@ -22,7 +22,7 @@ func collaborationDiagnostics(t *testing.T, f *fixture, root uuid.UUID) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		rows, e := f.p2.Query(ctx, `SELECT t.task_key,a.state,a.last_error_class,a.stop_reason,a.result_metadata,COALESCE((SELECT jsonb_agg(jsonb_build_object('kind','tool','phase',s.phase,'name',s.name,'status',s.status)) FROM agent_steps s WHERE s.attempt_id=a.id),'[]'::jsonb) FROM tasks t JOIN task_attempts a ON a.task_id=t.id JOIN collab_workflows f ON f.workflow_id=t.workflow_id WHERE f.root_id=$1 ORDER BY f.version,t.position,a.attempt_number`, root)
+		rows, e := f.p2.Query(ctx, `SELECT t.task_key,a.state,a.last_error_class,a.stop_reason,a.result_metadata,COALESCE((SELECT jsonb_agg(v.value) FROM (SELECT jsonb_build_object('kind','tool','phase',s.phase,'name',s.name,'status',s.status) AS value FROM agent_steps s WHERE s.attempt_id=a.id UNION ALL SELECT jsonb_build_object('kind','model','phase',m.phase,'metadata',m.metadata) FROM model_calls m WHERE m.attempt_id=a.id) v),'[]'::jsonb) FROM tasks t JOIN task_attempts a ON a.task_id=t.id JOIN collab_workflows f ON f.workflow_id=t.workflow_id WHERE f.root_id=$1 ORDER BY f.version,t.position,a.attempt_number`, root)
 		if e != nil {
 			t.Log("diagnostic query unavailable")
 			return

@@ -99,18 +99,19 @@ def prepare_runtime():
 
 
 @contextlib.contextmanager
-def runtime(image):
+def runtime(image, telemetry=False):
     token, resource = secrets.token_urlsafe(36), uuid.uuid4().hex
     name = "forgeswarm-agent-test-" + resource
     env = ENV | {"AGENT_RUNTIME_TOKEN": token}
     try:
+        trace_env = ["-e","TELEMETRY_ENABLED=true","-e","TELEMETRY_SAMPLE_RATIO=1","-e","OTEL_EXPORTER_OTLP_ENDPOINT=host.docker.internal:4317"] if telemetry else []
         blank_proxies = [value for key in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"] for value in ["-e", key + "="]]
         dev.run(["docker", "run", "-d", "--name", name, "--label", "forgeswarm.verification=" + resource,
                  "--platform", "linux/amd64", "--pull=never", "--read-only", "--user", "10002:10002",
                  "--cap-drop=ALL", "--security-opt=no-new-privileges=true", "--memory=256m", "--memory-swap=256m",
                  "--cpus=1", "--pids-limit=64", "--log-driver=none", "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16777216",
                  "-p", "127.0.0.1::9091", "-e", "AGENT_RUNTIME_TOKEN", "-e", "AGENT_INSECURE_LOCAL=true",
-                 "-e", "AGENT_LISTEN=0.0.0.0:9091", "-e", "AGENT_PROVIDER=scripted_TEST_DEMO", "-e", "AGENT_TEST_DEMO=true", *blank_proxies, image], env=env, label="test-runtime")
+                 "-e", "AGENT_LISTEN=0.0.0.0:9091", "-e", "AGENT_PROVIDER=scripted_TEST_DEMO", "-e", "AGENT_TEST_DEMO=true", *trace_env, *blank_proxies, image], env=env, label="test-runtime")
         _, inspection = dev.run(["docker", "inspect", name], quiet=True, label="runtime-confinement")
         actual = json.loads(inspection)[0]
         assert actual["HostConfig"]["ReadonlyRootfs"] and not actual["HostConfig"]["Binds"]

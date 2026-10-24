@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"forgeswarm/internal/telemetry"
 	"github.com/google/uuid"
 )
 
@@ -261,6 +262,15 @@ func (d *Docker) RunSnapshot(ctx context.Context, r Request, s Snapshot, profile
 	return d.runSnapshot(ctx, r, authorize, &s, profile)
 }
 func (d *Docker) runSnapshot(ctx context.Context, r Request, authorize func(context.Context) error, candidate *Snapshot, profile string) (result Result, err error) {
+	ctx, span := telemetry.Start(ctx, "sandbox.run", telemetry.IDs(r.Binding.Workflow.String(), r.Binding.Task.String(), r.Binding.Attempt.String())...)
+	started := time.Now()
+	defer func() {
+		outcome := "ok"
+		if err != nil || result.Status != "exited" || result.ExitCode != 0 {
+			outcome = "failed"
+		}
+		telemetry.Finish(ctx, span, "sandbox.run", started, outcome)
+	}()
 	if !r.Valid() || r.Binding.Installation != d.Installation || r.Image != d.image || authorize == nil || !d.CanStart() {
 		return result, ErrPolicy
 	}

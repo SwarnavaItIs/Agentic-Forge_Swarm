@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"forgeswarm/internal/postgres"
+	"forgeswarm/internal/telemetry"
 	"github.com/google/uuid"
 	"log/slog"
 	"time"
@@ -28,7 +29,11 @@ func Step(ctx context.Context, s Store, p Publisher, id uuid.UUID, batch int, le
 		if messageID == "" {
 			messageID = item.ID.String()
 		}
-		if err = p.Publish(ctx, messageID, item.Payload); err != nil {
+		publishCtx, span := telemetry.Linked(ctx, "outbox.publish", item.Traceparent)
+		started := time.Now()
+		err = p.Publish(publishCtx, messageID, item.Payload)
+		telemetry.End(publishCtx, span, "outbox.publish", started, err)
+		if err != nil {
 			return sent, err
 		}
 		if err = s.MarkSent(ctx, id, item.ID); err != nil {

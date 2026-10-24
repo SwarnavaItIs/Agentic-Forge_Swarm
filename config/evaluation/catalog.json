@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "mode": "fixture",
+  "evaluation_version": "equal-budget-v1",
+  "catalog_sha256": "2855fb42d52f5fb839ba51c027f94fcdc7ad4d15bcbcf7615512d1a878610b52",
+  "prompt_sha256": "59e279fb845c2b061c1ec72e0b726c0e83694c51e7fb748cfbb42e87ee2c5c09",
+  "budget": {
+    "model_calls": 12,
+    "tool_calls": 24,
+    "reserved_token_ceiling": 200000,
+    "wall_seconds": 90,
+    "max_output_tokens": 1024
+  },
+  "repetitions": 1,
+  "run_order_seed": 202609,
+  "runs": null,
+  "catalog": [
+    {
+      "version": "go-small-v1",
+      "id": "add",
+      "category": "bug_fix",
+      "split": "development",
+      "instruction": "Fix Add to return a+b for positive, zero and negative integers. Edit solution.go only.",
+      "base_commit": "291202f79aed4aa855720252b38d0e9e760badca",
+      "allowed_edits": [
+        "solution.go"
+      ],
+      "required_tests": [
+        "TestProtected",
+        "TestEdge"
+      ],
+      "protected_test_sha256": "0ac0fb0cc63cfd30d370dd5150fca477d63cbe8c48cce3cd035d83456ffad454"
+    },
+    {
+      "version": "go-small-v1",
+      "id": "health",
+      "category": "endpoint_implementation",
+      "split": "development",
+      "instruction": "Implement Health: respond HTTP 204 with an empty body. Use only net/http. Edit solution.go only.",
+      "base_commit": "1ed05209ff2d01e2dc0e4ab780e2c3d235b546d3",
+      "allowed_edits": [
+        "solution.go"
+      ],
+      "required_tests": [
+        "TestProtected",
+        "TestEdge"
+      ],
+      "protected_test_sha256": "f624836456200ee2f54f5048b5f9f9c05fcae4f986b885c797663ed3cffaa14b"
+    },
+    {
+      "version": "go-small-v1",
+      "id": "port",
+      "category": "validation",
+      "split": "development",
+      "instruction": "ParsePort accepts decimal ports 1..65535; invalid text or out-of-range values must return an error. Edit solution.go; permitted imports strconv and fmt.",
+      "base_commit": "a932c276fbcaba8dc2f09a3e6452dc112821bf02",
+      "allowed_edits": [
+        "solution.go"
+      ],
+      "required_tests": [
+        "TestProtected",
+        "TestEdge"
+      ],
+      "protected_test_sha256": "3319de25e6120c9d2ca692d30e91f0577303ecf9ea382c0f627288ec726910bb"
+    },
+    {
+      "version": "go-small-v1",
+      "id": "wrap",
+      "category": "error_handling",
+      "split": "development",
+      "instruction": "Wrap must preserve errors.Is identity while adding context 'load: '. For nil return nil. Edit solution.go; permitted import fmt.",
+      "base_commit": "3a9d72ecc43dd0d1aa7a0360cf0674bbcca4e5e4",
+      "allowed_edits": [
+        "solution.go"
+      ],
+      "required_tests": [
+        "TestProtected",
+        "TestEdge"
+      ],
+      "protected_test_sha256": "84ae6ea007c783c09054e5a8bc9484312a6907f29203a2ad4cd8434dd761f711"
+    },
+    {
+      "version": "go-small-v1",
+      "id": "counter",
+      "category": "concurrency",
+      "split": "holdout",
+      "instruction": "Make Counter safe for concurrent Add/Value. Each method must lock c.mu as its first statement and defer c.mu.Unlock as its second statement. Use sync.Mutex only. Edit solution.go.",
+      "base_commit": "56522e9513cf9ff7ceca64cb513e1ff2786060a1",
+      "allowed_edits": [
+        "solution.go"
+      ],
+      "required_tests": [
+        "TestProtected",
+        "TestEdge"
+      ],
+      "protected_test_sha256": "4d34eb94e18b47fe9b4e101435aafcbaf63af8c6d53d41865f06cbc42833502c"
+    },
+    {
+      "version": "go-small-v1",
+      "id": "regression",
+      "category": "regression_test_repair",
+      "split": "holdout",
+      "instruction": "Sum is correct. Repair only the stale integer expected by TestRegression in visible_test.go. Preserve the test and assertion exactly; edit only its expected integer.",
+      "base_commit": "31b8f7043b90972f0bd1f085736cdcd5f212f546",
+      "allowed_edits": [
+        "visible_test.go"
+      ],
+      "required_tests": [
+        "TestProtected",
+        "TestEdge",
+        "TestRegression"
+      ],
+      "protected_test_sha256": "0c468e538a6e847f4374822230bfe980757faa5238505c4b5a6d382016261d19"
+    },
+    {
+      "version": "go-small-v1",
+      "id": "runes",
+      "category": "bug_fix",
+      "split": "holdout",
+      "instruction": "Count returns the number of Unicode code points (UTF-8 runes), not bytes. Empty input returns 0. Edit solution.go; unicode/utf8 is permitted.",
+      "base_commit": "a232c3a9db35c9c0613c4f8bb8be935d1c534232",
+      "allowed_edits": [
+        "solution.go"
+      ],
+      "required_tests": [
+        "TestProtected",
+        "TestEdge"
+      ],
+      "protected_test_sha256": "914e8ba1460b683f3a2654ea184de3f1c4f020d78cc2ca84f74e6bd570a572f3"
+    },
+    {
+      "version": "go-small-v1",
+      "id": "method",
+      "category": "endpoint_validation",
+      "split": "holdout",
+      "instruction": "OnlyGET responds 204 with an empty body to GET and responds 405 to all other methods. Use net/http only; edit solution.go.",
+      "base_commit": "b495b40f6633627082e4b3c59916f100a3972088",
+      "allowed_edits": [
+        "solution.go"
+      ],
+      "required_tests": [
+        "TestProtected",
+        "TestEdge"
+      ],
+      "protected_test_sha256": "6bc6eceac1d76f3f42fcb4384bb58dc6b11fd8c20469bb2f49733d439ffa68af"
+    }
+  ],
+  "maximum_estimate_microusd": null,
+  "notes": [
+    "Scripted mode validates plumbing only, never real-agent quality.",
+    "Development/holdout membership is frozen. Do not tune on holdout failures.",
+    "Run order is randomized; a seed does not guarantee live-provider determinism.",
+    "Failures, timeouts, budget exhaustion and missing results remain in the intended denominator.",
+    "All four configurations share total task budgets, model, tools, base and protected authority."
+  ]
+}

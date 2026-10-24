@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "window": "historical database projections use rolling 24 hours; current workers/leases/outbox are instantaneous",
+  "histogram_buckets_seconds": [
+    0.005,
+    0.02,
+    0.1,
+    0.5,
+    1,
+    3,
+    10,
+    30,
+    90,
+    300,
+    900
+  ],
+  "histogram_inclusion": "all completed observed operations, including errors, cancelled and denied; process-local cumulative counters reset on process restart",
+  "latency_distributions": "database p50/p95/max and sample counts are observable gauges recomputed from durable records, not mergeable histograms; empty distributions are omitted",
+  "measurements": {
+    "admission_to_ready": {
+      "unit": "seconds",
+      "point": "first task.ready event minus task creation; includes dependency waiting"
+    },
+    "ready_to_claim": {
+      "unit": "seconds",
+      "point": "attempt.started_at minus task.ready event with exact generation; one sample per execution attempt"
+    },
+    "attempt": {
+      "unit": "seconds",
+      "point": "finished_at minus started_at; includes SUCCEEDED, FAILED, LOST and CANCELLED"
+    },
+    "task": {
+      "unit": "seconds",
+      "point": "terminal logical task updated_at minus created_at; includes retries, blocked and cancellation"
+    },
+    "workflow": {
+      "unit": "seconds",
+      "point": "first terminal event minus creation; physical DAG workflow, not approval wait"
+    },
+    "approval_wait": {
+      "unit": "seconds",
+      "point": "decided_at minus created_at; no sample while still pending"
+    },
+    "publication": {
+      "unit": "seconds",
+      "point": "terminal external operation updated_at minus created_at; includes failures/cancellation"
+    },
+    "model_reported": {
+      "unit": "seconds",
+      "point": "provider adapter reported latency_ms / 1000; fixture latency may be zero and is not live latency"
+    }
+  },
+  "state_gauges": {
+    "workers": "count: active=not draining and fresh configured heartbeat; available=at least one free slot",
+    "leases": "count: active/expired RUNNING ownership; expired is a current gauge, expired_attempts is retained LOST history",
+    "outbox": "count: PENDING rows only; excludes SENT/OBSOLETE",
+    "outbox_oldest_seconds": "seconds: DB clock minus oldest PENDING availability, zero when empty",
+    "tasks": "logical task counts by bounded status, created within 24h",
+    "attempts": "execution attempt counts by bounded state, started within 24h",
+    "workflows": "physical DAG workflow counts by bounded status, created within 24h",
+    "retries": "persisted task.retry_wait events, separate from transport redelivery",
+    "broker_republications": "sum of same-generation publish_revision; redelivery is separately observed from broker delivery metadata",
+    "expired_attempts": "LOST attempts within 24h",
+    "repair_rounds": "collab_projects.round; model correction, separate from infrastructure retry",
+    "approvals": "approval counts by bounded status within 24h",
+    "publications": "external intent counts by bounded status within 24h",
+    "reserved_cost_usd": "USD: conservative session estimated charge; includes unknown retained reservations; not an invoice",
+    "unknown_usage_calls": "count: unmatched model begin or unknown retained usage; never silently treated as zero"
+  },
+  "privacy": "traceparent only; no baggage/tracestate, source, prompts, raw errors, credentials or repository URLs; IDs only in traces/logs",
+  "bounds": {
+    "go_trace_queue": 256,
+    "batch": 32,
+    "export_timeout_ms": 500,
+    "sampling_ratio": 0.25,
+    "metric_series_per_instrument": 256,
+    "db_snapshot_timeout_ms": 400,
+    "collector_memory_mib": 128,
+    "jaeger_traces": 2000
+  },
+  "local_only": true,
+  "no_data": "No samples is shown as no data. DB failure emits database_up=0 and omits state projections."
+}

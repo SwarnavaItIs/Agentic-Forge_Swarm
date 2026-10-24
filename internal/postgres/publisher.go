@@ -5,6 +5,7 @@ import (
 	"errors"
 	"forgeswarm/internal/github"
 	"forgeswarm/internal/publication"
+	"forgeswarm/internal/telemetry"
 	"forgeswarm/internal/workflow"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -69,7 +70,10 @@ func (s *Store) checkPublication(ctx context.Context, id uuid.UUID, client *gith
 // A session advisory lock serializes the logical operation across publishers.
 // Losing a session releases the lock; deterministic remote identity and discovery
 // remain necessary because a lost HTTP outcome cannot be rolled back by SQL.
-func (s *Store) PublishOne(ctx context.Context, client *github.Client, id uuid.UUID, readOnly bool) (bool, error) {
+func (s *Store) PublishOne(ctx context.Context, client *github.Client, id uuid.UUID, readOnly bool) (progressed bool, err error) {
+	ctx, span := telemetry.Start(ctx, "publication.run")
+	started := time.Now()
+	defer func() { telemetry.End(ctx, span, "publication.run", started, err) }()
 	if id == uuid.Nil {
 		err := s.pool.QueryRow(ctx, `SELECT id FROM external_operations WHERE status IN ('prepared','in_flight','uncertain') AND next_attempt_at<=clock_timestamp() AND attempts<6 ORDER BY next_attempt_at,id LIMIT 1`).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {

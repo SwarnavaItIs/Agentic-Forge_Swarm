@@ -123,7 +123,7 @@ def build():
     run(["go", "build", "-o", BIN.parent / ("migrate.exe" if os.name == "nt" else "migrate"), "./cmd/migrate"], label="build-migrate")
     if (ROOT / "cmd/scheduler").exists():
         run(["go", "build", "-o", BIN.parent / ("scheduler.exe" if os.name == "nt" else "scheduler"), "./cmd/scheduler"], label="build-scheduler")
-    for name in ["coordinator","relay","worker","sandbox-fixture","sandbox-prepare","publisher","github-test-server","operator-init"]:
+    for name in ["coordinator","relay","worker","sandbox-fixture","sandbox-prepare","publisher","github-test-server","operator-init","evaluate"]:
         if (ROOT / "cmd" / name).exists():run(["go","build","-o",BIN.parent / (name+".exe" if os.name=="nt" else name),"./cmd/"+name],label="build-"+name)
 
 
@@ -332,6 +332,9 @@ def fmt_check():
 
 def main():
     global RECORD
+    if len(sys.argv)>1 and sys.argv[1] in {"observability-up","eval-fixture","eval-real","verify-stage-09"}:
+        import stage09
+        stage09.command(sys.argv[1]);return
     if len(sys.argv)>1 and sys.argv[1] in {"verify-stage-08","github-contract-test","github-live-demo"}:
         import stage08
         stage08.command(sys.argv[1]);return
@@ -365,7 +368,14 @@ def main():
         stage02.verify()
         return
     if command == "help":
-        print("Stage 08: github-contract-test; verify-stage-08 (full Stage 07 gate plus real approval/GitHub HTTP/browser tests).\n"
+        print("Stage 09: observability-up; eval-fixture; guarded eval-real; verify-stage-09.\n"
+              "Local OTLP endpoint 127.0.0.1:4317; enable TELEMETRY_ENABLED=true on trusted services. Grafana 3000, traces 16686, Prometheus 9095.\n"
+              "Migrate additive 00009 before upgrading roles. Config/metric units/buckets: config/observability/definitions.json. IDs never become labels.\n"
+              "Eight frozen Go tasks/four configs; shared 12-call/24-tool/200000-token/90s task budget. Fixture results are plumbing only.\n"
+              "Raw manifests/JSONL/CSV and independent summary/HTML remain under ignored artifacts/verification/stage-09.\n"
+              "Live eval requires existing session authorization, EVAL_AUTHORIZATION_FILE with total/per-run caps and exact catalog/pricing hashes, EVAL_CONFIRM=existing-session-authorized-spend and configured runtime/pricing.\n"
+              "Runtime must explicitly set AGENT_EVAL_ENABLED=true. No paid call is authorized by configuration alone. Missing usage/cost stays unknown; uncertain charges retain reservations.\n\n"
+              "Stage 08: github-contract-test; verify-stage-08 (full Stage 07 gate plus real approval/GitHub HTTP/browser tests).\n"
               "Migrate additive 00008 and upgrade trusted services together. Existing migrations and normalization v1-v7 stay unchanged.\n"
               "Generate ignored credentials: go run ./cmd/operator-init -file .cache/operator-auth.json; set OPERATOR_AUTH_FILE on API only.\n"
               "POST /v1/session {token}: 1h HttpOnly SameSite=Strict cookie; mutations require returned csrf in X-CSRF-Token plus same Origin. Trusted CLI may use Bearer instead.\n"

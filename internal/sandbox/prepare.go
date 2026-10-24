@@ -31,7 +31,7 @@ func PrepareImage(ctx context.Context, helper string) (string, error) {
 		return "", fmt.Errorf("prepare the pinned base image explicitly first: %w", err)
 	}
 	dockerfile := []byte("FROM " + Image + "\nENV CGO_ENABLED=0 GOMAXPROCS=2 GOFLAGS=-p=1 GOPROXY=off GOSUMDB=off GOTELEMETRY=off GOTOOLCHAIN=local GOCACHE=/opt/forgeswarm-cache\nCOPY harness_test.go /trusted/harness_test.go\nRUN [\"/usr/local/go/bin/go\",\"test\",\"/trusted/harness_test.go\"]\nCOPY --chmod=0555 forgeswarm-sandbox /usr/local/bin/forgeswarm-sandbox\nLABEL forgeswarm.helper_sha256=" + id + "\nLABEL forgeswarm.base_image=" + Image + "\n")
-	harness := []byte("package harness\nimport(\"testing\";_ \"bytes\";_ \"encoding/json\";_ \"fmt\";_ \"net\";_ \"os/exec\";_ \"strings\";_ \"syscall\";_ \"time\";_ \"crypto/sha256\")\nfunc TestHarness(t *testing.T){}\n")
+	harness := []byte("package harness\nimport(\"testing\";_ \"bytes\";_ \"encoding/json\";_ \"fmt\";_ \"net\";_ \"os/exec\";_ \"strings\";_ \"syscall\";_ \"time\";_ \"crypto/sha256\";_ \"net/http/httptest\")\nfunc TestHarness(t *testing.T){}\n")
 	var input bytes.Buffer
 	tw := tar.NewWriter(&input)
 	for _, file := range []struct {

@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 3s
+  scrape_timeout: 1s
+scrape_configs:
+  - job_name: forgeswarm
+    sample_limit: 10000
+    body_size_limit: 2MB
+    static_configs:
+      - targets: ["collector:9464"]

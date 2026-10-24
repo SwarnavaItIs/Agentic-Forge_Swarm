@@ -5,14 +5,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"forgeswarm/internal/evalcatalog"
 	"os"
 	"os/exec"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 )
 
 func ProtectedProfile(name string) bool {
+	if strings.HasPrefix(name, "eval:") {
+		_, ok := evalcatalog.Get(strings.TrimPrefix(name, "eval:"))
+		return ok
+	}
 	return slices.Contains([]string{"sum-v1", "add-v1", "double-v1", "score-v1", "math-v1"}, name)
 }
 

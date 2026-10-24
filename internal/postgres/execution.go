@@ -8,6 +8,7 @@ import (
 	"forgeswarm/internal/agent"
 	"forgeswarm/internal/execution"
 	"forgeswarm/internal/sandbox"
+	"forgeswarm/internal/telemetry"
 	"forgeswarm/internal/workflow"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -130,7 +131,13 @@ func mutation(ctx context.Context, tx pgx.Tx, p lockedWorkflow, status string, e
 	_, err := tx.Exec(ctx, `UPDATE workflows SET status=$2,version=version+1,last_event_sequence=$3,updated_at=$4 WHERE id=$1`, p.id, status, p.sequence, at)
 	return classify(err)
 }
-func (s *Store) ClaimTask(ctx context.Context, worker string, instance, task, request uuid.UUID, generation int64) (execution.Attempt, error) {
+func (s *Store) ClaimTask(ctx context.Context, worker string, instance, task, request uuid.UUID, generation int64) (out execution.Attempt, err error) {
+	ctx, span := telemetry.Start(ctx, "attempt.claim")
+	started := time.Now()
+	defer func() {
+		span.SetAttributes(telemetry.IDs(out.WorkflowID.String(), out.TaskID.String(), out.ID.String())...)
+		telemetry.End(ctx, span, "attempt.claim", started, err)
+	}()
 	if instance == uuid.Nil || task == uuid.Nil || request == uuid.Nil || generation < 1 {
 		return execution.Attempt{}, workflow.ErrInvalid
 	}
@@ -471,14 +478,15 @@ func dispatch(ctx context.Context, tx pgx.Tx, task uuid.UUID, generation int64) 
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO outbox(id,task_id,dispatch_generation,schema_version,payload) VALUES($1,$2,$3,1,$4)`, id, task, generation, body)
+	_, err = tx.Exec(ctx, `INSERT INTO outbox(id,task_id,dispatch_generation,schema_version,payload,traceparent) SELECT $1,$2,$3,1,$4,w.traceparent FROM tasks t JOIN workflows w ON w.id=t.workflow_id WHERE t.id=$2`, id, task, generation, body)
 	return classify(err)
 }
 
 type Dispatch struct {
-	ID        uuid.UUID
-	Payload   []byte
-	MessageID string
+	ID          uuid.UUID
+	Payload     []byte
+	MessageID   string
+	Traceparent string
 }
 
 func (s *Store) ClaimOutbox(ctx context.Context, relay uuid.UUID, batch int, lease time.Duration) ([]Dispatch, error) {
@@ -491,14 +499,14 @@ func (s *Store) ClaimOutbox(ctx context.Context, relay uuid.UUID, batch int, lea
 	}
 	defer rollback(tx)
 	rows, err := tx.Query(ctx, `WITH picked AS (SELECT id FROM outbox WHERE state='PENDING' AND available_at<=clock_timestamp() AND (relay_lease_expires_at IS NULL OR relay_lease_expires_at<=clock_timestamp()) ORDER BY available_at,id LIMIT $2 FOR UPDATE SKIP LOCKED)
- UPDATE outbox o SET relay_id=$1,relay_lease_expires_at=clock_timestamp()+$3*interval '1 millisecond' FROM picked p WHERE o.id=p.id RETURNING o.id,o.payload,o.id::text||':'||o.publish_revision::text`, relay, batch, lease.Milliseconds())
+ UPDATE outbox o SET relay_id=$1,relay_lease_expires_at=clock_timestamp()+$3*interval '1 millisecond' FROM picked p WHERE o.id=p.id RETURNING o.id,o.payload,o.id::text||':'||o.publish_revision::text,o.traceparent`, relay, batch, lease.Milliseconds())
 	if err != nil {
 		return nil, classify(err)
 	}
 	result := []Dispatch{}
 	for rows.Next() {
 		var d Dispatch
-		if err = rows.Scan(&d.ID, &d.Payload, &d.MessageID); err != nil {
+		if err = rows.Scan(&d.ID, &d.Payload, &d.MessageID, &d.Traceparent); err != nil {
 			rows.Close()
 			return nil, classify(err)
 		}

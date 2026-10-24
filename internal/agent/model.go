@@ -93,15 +93,16 @@ type Observation struct {
 	Omitted   int    `json:"omitted"`
 }
 type Next struct {
-	SchemaVersion int    `json:"schema_version"`
-	Attempt       string `json:"attempt_id"`
-	Generation    int64  `json:"generation"`
-	RequestID     string `json:"request_id"`
-	Turn          int    `json:"turn"`
-	Task          string `json:"task"`
-	Context       string `json:"context"`
-	Workspace     string `json:"workspace_sha256"`
-	MaxOutput     int    `json:"max_output_tokens"`
+	EvaluationRole string `json:"evaluation_role,omitempty"`
+	SchemaVersion  int    `json:"schema_version"`
+	Attempt        string `json:"attempt_id"`
+	Generation     int64  `json:"generation"`
+	RequestID      string `json:"request_id"`
+	Turn           int    `json:"turn"`
+	Task           string `json:"task"`
+	Context        string `json:"context"`
+	Workspace      string `json:"workspace_sha256"`
+	MaxOutput      int    `json:"max_output_tokens"`
 }
 type Reply struct {
 	Status       string  `json:"status"`

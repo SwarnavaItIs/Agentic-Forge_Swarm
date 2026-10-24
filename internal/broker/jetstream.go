@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"forgeswarm/internal/config"
+	"forgeswarm/internal/telemetry"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"net/url"
@@ -87,10 +88,12 @@ func (b *Broker) Publish(ctx context.Context, id string, body []byte) error {
 	if len(body) > 4096 {
 		return errors.New("dispatch_too_large")
 	}
-	_, err := b.JS.Publish(ctx, Subject, body, jetstream.WithMsgID(id))
+	message := &nats.Msg{Subject: Subject, Data: body, Header: nats.Header{}}
+	message.Header.Set("traceparent", telemetry.Parent(ctx))
+	_, err := b.JS.PublishMsg(ctx, message, jetstream.WithMsgID(id))
 	if err != nil && ctx.Err() == nil {
 		if b.Ensure(ctx) == nil {
-			_, err = b.JS.Publish(ctx, Subject, body, jetstream.WithMsgID(id))
+			_, err = b.JS.PublishMsg(ctx, message, jetstream.WithMsgID(id))
 		}
 	}
 	if err != nil {

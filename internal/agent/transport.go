@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"forgeswarm/api/agent/v1"
 	"forgeswarm/internal/sandbox"
+	"forgeswarm/internal/telemetry/rpctrace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -18,7 +19,7 @@ func DialRuntime(addr, token string, insecureLocal bool) (*grpc.ClientConn, erro
 	if !insecureLocal || !loopback(addr) || len(token) < 32 || len(token) > 256 {
 		return nil, sandbox.ErrPolicy
 	}
-	return grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(32<<10), grpc.MaxCallSendMsgSize(32<<10)), grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	return grpc.NewClient(addr, grpc.WithStatsHandler(rpctrace.Client()), grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(32<<10), grpc.MaxCallSendMsgSize(32<<10)), grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		return invoke(metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token), method, req, reply, cc, opts...)
 	}))
 }

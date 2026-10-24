@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"forgeswarm/internal/telemetry/setup"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -16,6 +17,8 @@ import (
 )
 
 func main() {
+	stopTelemetry := setup.Init("scheduler")
+	defer stopTelemetry()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(logger); err != nil {
 		logger.Error("scheduler_stopped", "error_class", "configuration_or_startup_failure")
