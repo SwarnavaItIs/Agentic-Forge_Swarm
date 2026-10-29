@@ -1,0 +1,25 @@
+name: Stage 10
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  final-local-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      GOTELEMETRY: 'off'
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/playwright
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32
+        with:
+          go-version: '1.26.10'
+          cache: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.16.0'
+      - run: python3 -m pip install --user uv==0.13.0
+      - run: cargo install cfn-guard --version 3.2.1 --locked
+      - run: npm ci --prefix web --ignore-scripts --no-audit --no-fund
+      - run: node web/node_modules/@playwright/test/cli.js install --with-deps chromium
+      - run: python3 scripts/dev.py verify-all

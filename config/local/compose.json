@@ -1,0 +1,1151 @@
+{
+  "name": "forgeswarm-local",
+  "services": {
+    "db": {
+      "image": "postgres:17.11-bookworm@sha256:66aafa11cf15800a3c94763f7e11d1e7b2e37e5e84bc4ce027cb6e1e4bfaf4df",
+      "platform": "linux/amd64",
+      "environment": {
+        "POSTGRES_USER": "forgeswarm",
+        "POSTGRES_DB": "forgeswarm",
+        "POSTGRES_PASSWORD_FILE": "/run/secrets/db_password"
+      },
+      "entrypoint": [
+        "sh",
+        "-ec",
+        "umask 077; cp /run/secrets/db_key /tmp/server.key; chown postgres:postgres /tmp/server.key; exec docker-entrypoint.sh postgres -c ssl=on -c ssl_min_protocol_version=TLSv1.3 -c ssl_cert_file=/run/secrets/db_cert -c ssl_key_file=/tmp/server.key -c hba_file=/etc/postgresql/pg_hba.conf -c max_connections=64 -c shared_buffers=64MB"
+      ],
+      "secrets": [
+        "db_password",
+        "db_key",
+        "db_cert"
+      ],
+      "volumes": [
+        "state:/var/lib/postgresql/data",
+        "./pg_hba.conf:/etc/postgresql/pg_hba.conf:ro"
+      ],
+      "tmpfs": [
+        "/tmp:rw,nosuid,nodev,size=16777216"
+      ],
+      "mem_limit": "384m",
+      "cpus": 1,
+      "pids_limit": 96,
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "pg_isready",
+          "-U",
+          "forgeswarm",
+          "-d",
+          "forgeswarm"
+        ],
+        "interval": "2s",
+        "timeout": "2s",
+        "retries": 30
+      }
+    },
+    "broker": {
+      "image": "nats:2.11.6-alpine@sha256:7dec3f8f1ff181975dbdfc0d903d2a9724659648294dbc2ebb2fa3a294d573a6",
+      "platform": "linux/amd64",
+      "entrypoint": [
+        "sh",
+        "-ec",
+        "export NATS_TOKEN=$$(cat /run/secrets/nats_token); exec nats-server -c /etc/nats/secure.conf"
+      ],
+      "secrets": [
+        "nats_token",
+        "broker_cert",
+        "broker_key"
+      ],
+      "volumes": [
+        "${ASSETS_DIR}/nats.conf:/etc/nats/secure.conf:ro",
+        "messages:/data"
+      ],
+      "networks": [
+        "default",
+        "execution"
+      ],
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "mem_limit": "128m",
+      "cpus": 0.25,
+      "pids_limit": 64,
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "wget",
+          "-q",
+          "-O",
+          "-",
+          "http://127.0.0.1:8222/healthz"
+        ],
+        "interval": "3s",
+        "timeout": "2s",
+        "retries": 30
+      }
+    },
+    "migrate": {
+      "image": "${PLATFORM_IMAGE:?prepare the trusted local image}",
+      "platform": "linux/amd64",
+      "pull_policy": "never",
+      "init": true,
+      "read_only": true,
+      "user": "10002:10002",
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "mem_limit": "192m",
+      "cpus": 0.5,
+      "pids_limit": 64,
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16777216"
+      ],
+      "stop_grace_period": "30s",
+      "networks": [
+        "default"
+      ],
+      "profiles": [
+        "local"
+      ],
+      "command": [
+        "migrate",
+        "up"
+      ],
+      "environment": {
+        "GOMAXPROCS": "2",
+        "DATABASE_URL_FILE": "/run/secrets/database_url",
+        "DB_MAX_CONNS": "6",
+        "RPC_ADDR": "coordinator:9090",
+        "RPC_TLS_CA": "/run/secrets/ca",
+        "NATS_URL": "tls://broker:4222",
+        "NATS_TLS_CA": "/run/secrets/ca",
+        "INSECURE_LOCAL": "false",
+        "TOTAL_CAPACITY": "2",
+        "WORKER_MAX_CAPACITY": "1",
+        "WORKER_CAPACITY": "1",
+        "ATTEMPT_LEASE": "6s",
+        "WORKER_FRESHNESS": "10s",
+        "RPC_TIMEOUT": "2s",
+        "SCHEDULER_INTERVAL": "100ms",
+        "SCHEDULER_SCAN_TIMEOUT": "2s",
+        "MAX_WORKFLOWS": "32",
+        "MAX_TASKS_PER_WORKFLOW": "16",
+        "MAX_QUEUED_TASKS": "128",
+        "MAX_READY_TASKS": "8",
+        "TASK_MAX_ATTEMPTS": "3",
+        "AGENT_ENABLED": "false",
+        "AGENT_CATALOG": "/assets/catalog",
+        "AGENT_PRICING_FILE": "/app/agent-pricing.json",
+        "COLLAB_ENABLED": "true",
+        "SANDBOX_FIXTURE_REGISTRY": "/assets/fixtures",
+        "TELEMETRY_ENABLED": "false",
+        "TELEMETRY_DOCKER_LOCAL": "true",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "collector:4317",
+        "TELEMETRY_SAMPLE_RATIO": "0.25"
+      },
+      "secrets": [
+        "database_url",
+        "ca"
+      ],
+      "depends_on": {
+        "db": {
+          "condition": "service_healthy"
+        }
+      }
+    },
+    "api": {
+      "image": "${PLATFORM_IMAGE:?prepare the trusted local image}",
+      "platform": "linux/amd64",
+      "pull_policy": "never",
+      "init": true,
+      "read_only": true,
+      "user": "10002:10002",
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "mem_limit": "256m",
+      "cpus": 0.5,
+      "pids_limit": 64,
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16777216"
+      ],
+      "stop_grace_period": "30s",
+      "profiles": [
+        "local"
+      ],
+      "command": [
+        "api"
+      ],
+      "environment": {
+        "GOMAXPROCS": "2",
+        "DATABASE_URL_FILE": "/run/secrets/database_url",
+        "DB_MAX_CONNS": "6",
+        "RPC_ADDR": "coordinator:9090",
+        "RPC_TLS_CA": "/run/secrets/ca",
+        "NATS_URL": "tls://broker:4222",
+        "NATS_TLS_CA": "/run/secrets/ca",
+        "INSECURE_LOCAL": "false",
+        "TOTAL_CAPACITY": "2",
+        "WORKER_MAX_CAPACITY": "1",
+        "WORKER_CAPACITY": "1",
+        "ATTEMPT_LEASE": "6s",
+        "WORKER_FRESHNESS": "10s",
+        "RPC_TIMEOUT": "2s",
+        "SCHEDULER_INTERVAL": "100ms",
+        "SCHEDULER_SCAN_TIMEOUT": "2s",
+        "MAX_WORKFLOWS": "32",
+        "MAX_TASKS_PER_WORKFLOW": "16",
+        "MAX_QUEUED_TASKS": "128",
+        "MAX_READY_TASKS": "8",
+        "TASK_MAX_ATTEMPTS": "3",
+        "AGENT_ENABLED": "true",
+        "AGENT_CATALOG": "/assets/catalog",
+        "AGENT_PRICING_FILE": "/app/agent-pricing.json",
+        "COLLAB_ENABLED": "true",
+        "SANDBOX_FIXTURE_REGISTRY": "/assets/fixtures",
+        "TELEMETRY_ENABLED": "true",
+        "TELEMETRY_DOCKER_LOCAL": "true",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "collector:4317",
+        "TELEMETRY_SAMPLE_RATIO": "0.25",
+        "HTTP_ADDR": "0.0.0.0:8443",
+        "HTTP_TLS_CERT": "/run/secrets/api_cert",
+        "HTTP_TLS_KEY": "/run/secrets/api_key",
+        "HTTP_TLS_CA": "/run/secrets/ca",
+        "UI_ORIGIN": "https://127.0.0.1:${API_PORT:-8443}",
+        "OPERATOR_AUTH_FILE": "/run/secrets/operator_auth",
+        "RPC_KEYS_FILE": "/run/secrets/rpc_keys",
+        "GITHUB_CONFIG_FILE": "/run/secrets/github_config",
+        "WEB_DIR": "/app/web"
+      },
+      "secrets": [
+        "database_url",
+        "ca",
+        "api_cert",
+        "api_key",
+        "operator_auth",
+        "rpc_keys",
+        "github_config"
+      ],
+      "volumes": [
+        "assets:/assets"
+      ],
+      "depends_on": {
+        "migrate": {
+          "condition": "service_completed_successfully"
+        },
+        "github-test": {
+          "condition": "service_started"
+        },
+        "seed": {
+          "condition": "service_completed_successfully"
+        }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "/app/bin/launch",
+          "health",
+          "http"
+        ],
+        "interval": "5s",
+        "timeout": "3s",
+        "retries": 15
+      },
+      "network_mode": "service:github-test"
+    },
+    "scheduler": {
+      "image": "${PLATFORM_IMAGE:?prepare the trusted local image}",
+      "platform": "linux/amd64",
+      "pull_policy": "never",
+      "init": true,
+      "read_only": true,
+      "user": "10002:10002",
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "mem_limit": "192m",
+      "cpus": 0.5,
+      "pids_limit": 64,
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16777216"
+      ],
+      "stop_grace_period": "30s",
+      "networks": [
+        "default"
+      ],
+      "profiles": [
+        "local"
+      ],
+      "command": [
+        "scheduler"
+      ],
+      "environment": {
+        "GOMAXPROCS": "2",
+        "DATABASE_URL_FILE": "/run/secrets/database_url",
+        "DB_MAX_CONNS": "6",
+        "RPC_ADDR": "coordinator:9090",
+        "RPC_TLS_CA": "/run/secrets/ca",
+        "NATS_URL": "tls://broker:4222",
+        "NATS_TLS_CA": "/run/secrets/ca",
+        "INSECURE_LOCAL": "false",
+        "TOTAL_CAPACITY": "2",
+        "WORKER_MAX_CAPACITY": "1",
+        "WORKER_CAPACITY": "1",
+        "ATTEMPT_LEASE": "6s",
+        "WORKER_FRESHNESS": "10s",
+        "RPC_TIMEOUT": "2s",
+        "SCHEDULER_INTERVAL": "100ms",
+        "SCHEDULER_SCAN_TIMEOUT": "2s",
+        "MAX_WORKFLOWS": "32",
+        "MAX_TASKS_PER_WORKFLOW": "16",
+        "MAX_QUEUED_TASKS": "128",
+        "MAX_READY_TASKS": "8",
+        "TASK_MAX_ATTEMPTS": "3",
+        "AGENT_ENABLED": "true",
+        "AGENT_CATALOG": "/assets/catalog",
+        "AGENT_PRICING_FILE": "/app/agent-pricing.json",
+        "COLLAB_ENABLED": "true",
+        "SANDBOX_FIXTURE_REGISTRY": "/assets/fixtures",
+        "TELEMETRY_ENABLED": "true",
+        "TELEMETRY_DOCKER_LOCAL": "true",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "collector:4317",
+        "TELEMETRY_SAMPLE_RATIO": "0.25",
+        "APPROVAL_TTL": "24h"
+      },
+      "secrets": [
+        "database_url",
+        "ca"
+      ],
+      "depends_on": {
+        "migrate": {
+          "condition": "service_completed_successfully"
+        }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "/app/bin/launch",
+          "health",
+          "database"
+        ],
+        "interval": "5s",
+        "timeout": "3s",
+        "retries": 15
+      }
+    },
+    "coordinator": {
+      "image": "${PLATFORM_IMAGE:?prepare the trusted local image}",
+      "platform": "linux/amd64",
+      "pull_policy": "never",
+      "init": true,
+      "read_only": true,
+      "user": "10002:10002",
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "mem_limit": "192m",
+      "cpus": 0.5,
+      "pids_limit": 64,
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16777216"
+      ],
+      "stop_grace_period": "30s",
+      "networks": [
+        "default",
+        "execution"
+      ],
+      "profiles": [
+        "local"
+      ],
+      "command": [
+        "coordinator"
+      ],
+      "environment": {
+        "GOMAXPROCS": "2",
+        "DATABASE_URL_FILE": "/run/secrets/database_url",
+        "DB_MAX_CONNS": "6",
+        "RPC_ADDR": "0.0.0.0:9090",
+        "RPC_TLS_CA": "/run/secrets/ca",
+        "NATS_URL": "tls://broker:4222",
+        "NATS_TLS_CA": "/run/secrets/ca",
+        "INSECURE_LOCAL": "false",
+        "TOTAL_CAPACITY": "2",
+        "WORKER_MAX_CAPACITY": "1",
+        "WORKER_CAPACITY": "1",
+        "ATTEMPT_LEASE": "6s",
+        "WORKER_FRESHNESS": "10s",
+        "RPC_TIMEOUT": "2s",
+        "SCHEDULER_INTERVAL": "100ms",
+        "SCHEDULER_SCAN_TIMEOUT": "2s",
+        "MAX_WORKFLOWS": "32",
+        "MAX_TASKS_PER_WORKFLOW": "16",
+        "MAX_QUEUED_TASKS": "128",
+        "MAX_READY_TASKS": "8",
+        "TASK_MAX_ATTEMPTS": "3",
+        "AGENT_ENABLED": "true",
+        "AGENT_CATALOG": "/assets/catalog",
+        "AGENT_PRICING_FILE": "/app/agent-pricing.json",
+        "COLLAB_ENABLED": "true",
+        "SANDBOX_FIXTURE_REGISTRY": "/assets/fixtures",
+        "TELEMETRY_ENABLED": "true",
+        "TELEMETRY_DOCKER_LOCAL": "true",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "collector:4317",
+        "TELEMETRY_SAMPLE_RATIO": "0.25",
+        "RPC_KEYS_FILE": "/run/secrets/rpc_keys",
+        "RPC_TLS_CERT": "/run/secrets/rpc_cert",
+        "RPC_TLS_KEY": "/run/secrets/rpc_key"
+      },
+      "secrets": [
+        "database_url",
+        "ca",
+        "rpc_keys",
+        "rpc_cert",
+        "rpc_key"
+      ],
+      "depends_on": {
+        "migrate": {
+          "condition": "service_completed_successfully"
+        }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "/app/bin/launch",
+          "health",
+          "database"
+        ],
+        "interval": "5s",
+        "timeout": "3s",
+        "retries": 15
+      }
+    },
+    "relay": {
+      "image": "${PLATFORM_IMAGE:?prepare the trusted local image}",
+      "platform": "linux/amd64",
+      "pull_policy": "never",
+      "init": true,
+      "read_only": true,
+      "user": "10002:10002",
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "mem_limit": "192m",
+      "cpus": 0.5,
+      "pids_limit": 64,
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16777216"
+      ],
+      "stop_grace_period": "30s",
+      "networks": [
+        "default"
+      ],
+      "profiles": [
+        "local"
+      ],
+      "command": [
+        "relay"
+      ],
+      "environment": {
+        "GOMAXPROCS": "2",
+        "DATABASE_URL_FILE": "/run/secrets/database_url",
+        "DB_MAX_CONNS": "6",
+        "RPC_ADDR": "coordinator:9090",
+        "RPC_TLS_CA": "/run/secrets/ca",
+        "NATS_URL": "tls://broker:4222",
+        "NATS_TLS_CA": "/run/secrets/ca",
+        "INSECURE_LOCAL": "false",
+        "TOTAL_CAPACITY": "2",
+        "WORKER_MAX_CAPACITY": "1",
+        "WORKER_CAPACITY": "1",
+        "ATTEMPT_LEASE": "6s",
+        "WORKER_FRESHNESS": "10s",
+        "RPC_TIMEOUT": "2s",
+        "SCHEDULER_INTERVAL": "100ms",
+        "SCHEDULER_SCAN_TIMEOUT": "2s",
+        "MAX_WORKFLOWS": "32",
+        "MAX_TASKS_PER_WORKFLOW": "16",
+        "MAX_QUEUED_TASKS": "128",
+        "MAX_READY_TASKS": "8",
+        "TASK_MAX_ATTEMPTS": "3",
+        "AGENT_ENABLED": "true",
+        "AGENT_CATALOG": "/assets/catalog",
+        "AGENT_PRICING_FILE": "/app/agent-pricing.json",
+        "COLLAB_ENABLED": "true",
+        "SANDBOX_FIXTURE_REGISTRY": "/assets/fixtures",
+        "TELEMETRY_ENABLED": "true",
+        "TELEMETRY_DOCKER_LOCAL": "true",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "collector:4317",
+        "TELEMETRY_SAMPLE_RATIO": "0.25",
+        "NATS_TOKEN_FILE": "/run/secrets/nats_token"
+      },
+      "secrets": [
+        "database_url",
+        "ca",
+        "nats_token"
+      ],
+      "depends_on": {
+        "migrate": {
+          "condition": "service_completed_successfully"
+        },
+        "broker": {
+          "condition": "service_healthy"
+        }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "/app/bin/launch",
+          "health",
+          "database"
+        ],
+        "interval": "5s",
+        "timeout": "3s",
+        "retries": 15
+      }
+    },
+    "publisher": {
+      "image": "${PLATFORM_IMAGE:?prepare the trusted local image}",
+      "platform": "linux/amd64",
+      "pull_policy": "never",
+      "init": true,
+      "read_only": true,
+      "user": "10002:10002",
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "mem_limit": "192m",
+      "cpus": 0.5,
+      "pids_limit": 64,
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16777216"
+      ],
+      "stop_grace_period": "30s",
+      "profiles": [
+        "local"
+      ],
+      "command": [
+        "publisher",
+        "-repository-id",
+        "42",
+        "-confirm-publish"
+      ],
+      "environment": {
+        "GOMAXPROCS": "2",
+        "DATABASE_URL_FILE": "/run/secrets/database_url",
+        "DB_MAX_CONNS": "6",
+        "RPC_ADDR": "coordinator:9090",
+        "RPC_TLS_CA": "/run/secrets/ca",
+        "NATS_URL": "tls://broker:4222",
+        "NATS_TLS_CA": "/run/secrets/ca",
+        "INSECURE_LOCAL": "false",
+        "TOTAL_CAPACITY": "2",
+        "WORKER_MAX_CAPACITY": "1",
+        "WORKER_CAPACITY": "1",
+        "ATTEMPT_LEASE": "6s",
+        "WORKER_FRESHNESS": "10s",
+        "RPC_TIMEOUT": "2s",
+        "SCHEDULER_INTERVAL": "100ms",
+        "SCHEDULER_SCAN_TIMEOUT": "2s",
+        "MAX_WORKFLOWS": "32",
+        "MAX_TASKS_PER_WORKFLOW": "16",
+        "MAX_QUEUED_TASKS": "128",
+        "MAX_READY_TASKS": "8",
+        "TASK_MAX_ATTEMPTS": "3",
+        "AGENT_ENABLED": "true",
+        "AGENT_CATALOG": "/assets/catalog",
+        "AGENT_PRICING_FILE": "/app/agent-pricing.json",
+        "COLLAB_ENABLED": "true",
+        "SANDBOX_FIXTURE_REGISTRY": "/assets/fixtures",
+        "TELEMETRY_ENABLED": "true",
+        "TELEMETRY_DOCKER_LOCAL": "true",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "collector:4317",
+        "TELEMETRY_SAMPLE_RATIO": "0.25",
+        "GITHUB_CONFIG_FILE": "/run/secrets/github_config"
+      },
+      "secrets": [
+        "database_url",
+        "ca",
+        "github_config"
+      ],
+      "depends_on": {
+        "migrate": {
+          "condition": "service_completed_successfully"
+        },
+        "github-test": {
+          "condition": "service_started"
+        }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "/app/bin/launch",
+          "health",
+          "database"
+        ],
+        "interval": "5s",
+        "timeout": "3s",
+        "retries": 15
+      },
+      "network_mode": "service:github-test"
+    },
+    "github-test": {
+      "image": "${PLATFORM_IMAGE:?prepare the trusted local image}",
+      "platform": "linux/amd64",
+      "pull_policy": "never",
+      "init": true,
+      "read_only": true,
+      "user": "10002:10002",
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "mem_limit": "128m",
+      "cpus": 0.25,
+      "pids_limit": 64,
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16777216"
+      ],
+      "stop_grace_period": "30s",
+      "networks": [
+        "default",
+        "edge"
+      ],
+      "profiles": [
+        "local"
+      ],
+      "command": [
+        "github-test-server",
+        "-addr",
+        "127.0.0.1:9088"
+      ],
+      "environment": {
+        "GOMAXPROCS": "2"
+      },
+      "secrets": [],
+      "ports": [
+        "127.0.0.1:${API_PORT:-8443}:8443"
+      ]
+    },
+    "worker_a": {
+      "image": "${PLATFORM_IMAGE:?prepare the trusted local image}",
+      "platform": "linux/amd64",
+      "pull_policy": "never",
+      "init": true,
+      "read_only": true,
+      "user": "10002:10002",
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "mem_limit": "256m",
+      "cpus": 1,
+      "pids_limit": 64,
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16777216"
+      ],
+      "stop_grace_period": "30s",
+      "networks": [
+        "execution"
+      ],
+      "profiles": [
+        "local"
+      ],
+      "command": [
+        "worker"
+      ],
+      "environment": {
+        "GOMAXPROCS": "2",
+        "DATABASE_URL_FILE": "",
+        "DB_MAX_CONNS": "6",
+        "RPC_ADDR": "coordinator:9090",
+        "RPC_TLS_CA": "/run/secrets/ca",
+        "NATS_URL": "tls://broker:4222",
+        "NATS_TLS_CA": "/run/secrets/ca",
+        "INSECURE_LOCAL": "false",
+        "TOTAL_CAPACITY": "2",
+        "WORKER_MAX_CAPACITY": "1",
+        "WORKER_CAPACITY": "1",
+        "ATTEMPT_LEASE": "6s",
+        "WORKER_FRESHNESS": "10s",
+        "RPC_TIMEOUT": "2s",
+        "SCHEDULER_INTERVAL": "100ms",
+        "SCHEDULER_SCAN_TIMEOUT": "2s",
+        "MAX_WORKFLOWS": "32",
+        "MAX_TASKS_PER_WORKFLOW": "16",
+        "MAX_QUEUED_TASKS": "128",
+        "MAX_READY_TASKS": "8",
+        "TASK_MAX_ATTEMPTS": "3",
+        "AGENT_ENABLED": "true",
+        "AGENT_CATALOG": "/assets/catalog",
+        "AGENT_PRICING_FILE": "/app/agent-pricing.json",
+        "COLLAB_ENABLED": "true",
+        "SANDBOX_FIXTURE_REGISTRY": "/assets/fixtures",
+        "TELEMETRY_ENABLED": "true",
+        "TELEMETRY_DOCKER_LOCAL": "true",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "collector:4317",
+        "TELEMETRY_SAMPLE_RATIO": "0.25",
+        "WORKER_TOKEN_FILE": "/run/secrets/worker_token",
+        "NATS_TOKEN_FILE": "/run/secrets/nats_token",
+        "AGENT_RUNTIME_TOKEN_FILE": "/run/secrets/runtime_token",
+        "AGENT_RUNTIME_ADDR": "127.0.0.1:9091",
+        "AGENT_INSECURE_LOCAL": "true",
+        "SANDBOX_ENABLED": "true",
+        "SANDBOX_INSTALLATION_ID": "${INSTALLATION_ID}",
+        "SANDBOX_HELPER": "/app/bin/sandbox-helper-linux",
+        "TELEMETRY_SERVICE_NAME": "worker_a"
+      },
+      "secrets": [
+        "ca",
+        "nats_token",
+        {
+          "source": "worker_a_token",
+          "target": "worker_token"
+        },
+        "runtime_token"
+      ],
+      "volumes": [
+        "assets:/assets:ro",
+        "/var/run/docker.sock:/var/run/docker.sock"
+      ],
+      "group_add": [
+        "${DOCKER_GID:-0}"
+      ],
+      "depends_on": {
+        "coordinator": {
+          "condition": "service_started"
+        },
+        "broker": {
+          "condition": "service_healthy"
+        },
+        "seed": {
+          "condition": "service_completed_successfully"
+        }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "/app/bin/launch",
+          "health",
+          "rpc"
+        ],
+        "interval": "5s",
+        "timeout": "3s",
+        "retries": 15
+      }
+    },
+    "runtime_a": {
+      "image": "${RUNTIME_IMAGE:?prepare the confined runtime}",
+      "platform": "linux/amd64",
+      "pull_policy": "never",
+      "network_mode": "service:worker_a",
+      "user": "10002:10002",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "mem_limit": "192m",
+      "cpus": 0.5,
+      "pids_limit": 64,
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16777216"
+      ],
+      "environment": {
+        "AGENT_RUNTIME_TOKEN_FILE": "/run/secrets/runtime_token",
+        "AGENT_INSECURE_LOCAL": "true",
+        "AGENT_LISTEN": "127.0.0.1:9091",
+        "AGENT_PROVIDER": "scripted_TEST_DEMO",
+        "AGENT_TEST_DEMO": "true",
+        "AGENT_LIVE_ENABLED": "false",
+        "TELEMETRY_ENABLED": "true",
+        "TELEMETRY_DOCKER_LOCAL": "true",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "collector:4317"
+      },
+      "secrets": [
+        "runtime_token"
+      ],
+      "profiles": [
+        "local"
+      ],
+      "depends_on": {
+        "worker_a": {
+          "condition": "service_started"
+        }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-m",
+          "forge_agent.health"
+        ],
+        "interval": "5s",
+        "timeout": "3s",
+        "retries": 15
+      }
+    },
+    "worker_b": {
+      "image": "${PLATFORM_IMAGE:?prepare the trusted local image}",
+      "platform": "linux/amd64",
+      "pull_policy": "never",
+      "init": true,
+      "read_only": true,
+      "user": "10002:10002",
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "mem_limit": "256m",
+      "cpus": 1,
+      "pids_limit": 64,
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16777216"
+      ],
+      "stop_grace_period": "30s",
+      "networks": [
+        "execution"
+      ],
+      "profiles": [
+        "two-workers"
+      ],
+      "command": [
+        "worker"
+      ],
+      "environment": {
+        "GOMAXPROCS": "2",
+        "DATABASE_URL_FILE": "",
+        "DB_MAX_CONNS": "6",
+        "RPC_ADDR": "coordinator:9090",
+        "RPC_TLS_CA": "/run/secrets/ca",
+        "NATS_URL": "tls://broker:4222",
+        "NATS_TLS_CA": "/run/secrets/ca",
+        "INSECURE_LOCAL": "false",
+        "TOTAL_CAPACITY": "2",
+        "WORKER_MAX_CAPACITY": "1",
+        "WORKER_CAPACITY": "1",
+        "ATTEMPT_LEASE": "6s",
+        "WORKER_FRESHNESS": "10s",
+        "RPC_TIMEOUT": "2s",
+        "SCHEDULER_INTERVAL": "100ms",
+        "SCHEDULER_SCAN_TIMEOUT": "2s",
+        "MAX_WORKFLOWS": "32",
+        "MAX_TASKS_PER_WORKFLOW": "16",
+        "MAX_QUEUED_TASKS": "128",
+        "MAX_READY_TASKS": "8",
+        "TASK_MAX_ATTEMPTS": "3",
+        "AGENT_ENABLED": "true",
+        "AGENT_CATALOG": "/assets/catalog",
+        "AGENT_PRICING_FILE": "/app/agent-pricing.json",
+        "COLLAB_ENABLED": "true",
+        "SANDBOX_FIXTURE_REGISTRY": "/assets/fixtures",
+        "TELEMETRY_ENABLED": "true",
+        "TELEMETRY_DOCKER_LOCAL": "true",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "collector:4317",
+        "TELEMETRY_SAMPLE_RATIO": "0.25",
+        "WORKER_TOKEN_FILE": "/run/secrets/worker_token",
+        "NATS_TOKEN_FILE": "/run/secrets/nats_token",
+        "AGENT_RUNTIME_TOKEN_FILE": "/run/secrets/runtime_token",
+        "AGENT_RUNTIME_ADDR": "127.0.0.1:9091",
+        "AGENT_INSECURE_LOCAL": "true",
+        "SANDBOX_ENABLED": "true",
+        "SANDBOX_INSTALLATION_ID": "${INSTALLATION_ID}",
+        "SANDBOX_HELPER": "/app/bin/sandbox-helper-linux",
+        "TELEMETRY_SERVICE_NAME": "worker_b"
+      },
+      "secrets": [
+        "ca",
+        "nats_token",
+        {
+          "source": "worker_b_token",
+          "target": "worker_token"
+        },
+        "runtime_token"
+      ],
+      "volumes": [
+        "assets:/assets:ro",
+        "/var/run/docker.sock:/var/run/docker.sock"
+      ],
+      "group_add": [
+        "${DOCKER_GID:-0}"
+      ],
+      "depends_on": {
+        "coordinator": {
+          "condition": "service_started"
+        },
+        "broker": {
+          "condition": "service_healthy"
+        },
+        "seed": {
+          "condition": "service_completed_successfully"
+        }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "/app/bin/launch",
+          "health",
+          "rpc"
+        ],
+        "interval": "5s",
+        "timeout": "3s",
+        "retries": 15
+      }
+    },
+    "runtime_b": {
+      "image": "${RUNTIME_IMAGE:?prepare the confined runtime}",
+      "platform": "linux/amd64",
+      "pull_policy": "never",
+      "network_mode": "service:worker_b",
+      "user": "10002:10002",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "mem_limit": "192m",
+      "cpus": 0.5,
+      "pids_limit": 64,
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16777216"
+      ],
+      "environment": {
+        "AGENT_RUNTIME_TOKEN_FILE": "/run/secrets/runtime_token",
+        "AGENT_INSECURE_LOCAL": "true",
+        "AGENT_LISTEN": "127.0.0.1:9091",
+        "AGENT_PROVIDER": "scripted_TEST_DEMO",
+        "AGENT_TEST_DEMO": "true",
+        "AGENT_LIVE_ENABLED": "false",
+        "TELEMETRY_ENABLED": "true",
+        "TELEMETRY_DOCKER_LOCAL": "true",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "collector:4317"
+      },
+      "secrets": [
+        "runtime_token"
+      ],
+      "profiles": [
+        "two-workers"
+      ],
+      "depends_on": {
+        "worker_b": {
+          "condition": "service_started"
+        }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-m",
+          "forge_agent.health"
+        ],
+        "interval": "5s",
+        "timeout": "3s",
+        "retries": 15
+      }
+    },
+    "collector": {
+      "extends": {
+        "file": "../observability/compose.yaml",
+        "service": "collector"
+      },
+      "profiles": [
+        "local"
+      ],
+      "volumes": [
+        "../observability/collector.yaml:/etc/otel.yaml:ro"
+      ],
+      "networks": [
+        "default",
+        "execution",
+        "edge"
+      ]
+    },
+    "jaeger": {
+      "extends": {
+        "file": "../observability/compose.yaml",
+        "service": "jaeger"
+      },
+      "profiles": [
+        "local"
+      ],
+      "volumes": [
+        "../observability/jaeger.yaml:/etc/jaeger.yaml:ro"
+      ],
+      "networks": [
+        "default",
+        "edge"
+      ]
+    },
+    "prometheus": {
+      "extends": {
+        "file": "../observability/compose.yaml",
+        "service": "prometheus"
+      },
+      "profiles": [
+        "local"
+      ],
+      "volumes": [
+        "../observability/prometheus.yaml:/etc/prometheus/prometheus.yml:ro",
+        "metrics:/prometheus"
+      ],
+      "networks": [
+        "default",
+        "edge"
+      ]
+    },
+    "grafana": {
+      "extends": {
+        "file": "../observability/compose.yaml",
+        "service": "grafana"
+      },
+      "profiles": [
+        "local"
+      ],
+      "volumes": [
+        "../observability/grafana/provisioning:/etc/grafana/provisioning:ro",
+        "../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro",
+        "${ASSETS_DIR}/grafana-password:/run/secrets/grafana-password:ro",
+        "grafana:/var/lib/grafana"
+      ],
+      "networks": [
+        "default",
+        "edge"
+      ]
+    },
+    "seed": {
+      "image": "${PLATFORM_IMAGE:?prepare the trusted local image}",
+      "platform": "linux/amd64",
+      "pull_policy": "never",
+      "user": "0:0",
+      "read_only": true,
+      "cap_drop": [
+        "ALL"
+      ],
+      "cap_add": [
+        "CHOWN",
+        "DAC_OVERRIDE"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "network_mode": "none",
+      "command": [
+        "seed-assets"
+      ],
+      "volumes": [
+        "${ASSETS_DIR}/fixtures:/seed/fixtures:ro",
+        "${ASSETS_DIR}/catalog:/seed/catalog:ro",
+        "assets:/assets"
+      ],
+      "mem_limit": "64m",
+      "cpus": 0.25,
+      "pids_limit": 16,
+      "profiles": [
+        "local"
+      ]
+    }
+  },
+  "networks": {
+    "default": {
+      "internal": true
+    },
+    "execution": {
+      "internal": true
+    },
+    "edge": {}
+  },
+  "volumes": {
+    "state": {},
+    "messages": {},
+    "metrics": {},
+    "grafana": {},
+    "assets": {}
+  },
+  "secrets": {
+    "db_password": {
+      "file": "${ASSETS_DIR}/db-password"
+    },
+    "database_url": {
+      "file": "${ASSETS_DIR}/database-url"
+    },
+    "ca": {
+      "file": "${ASSETS_DIR}/tls/ca.pem"
+    },
+    "db_cert": {
+      "file": "${ASSETS_DIR}/tls/db.pem"
+    },
+    "db_key": {
+      "file": "${ASSETS_DIR}/tls/db-key.pem"
+    },
+    "api_cert": {
+      "file": "${ASSETS_DIR}/tls/api.pem"
+    },
+    "api_key": {
+      "file": "${ASSETS_DIR}/tls/api-key.pem"
+    },
+    "rpc_cert": {
+      "file": "${ASSETS_DIR}/tls/coordinator.pem"
+    },
+    "rpc_key": {
+      "file": "${ASSETS_DIR}/tls/coordinator-key.pem"
+    },
+    "broker_cert": {
+      "file": "${ASSETS_DIR}/tls/broker.pem"
+    },
+    "broker_key": {
+      "file": "${ASSETS_DIR}/tls/broker-key.pem"
+    },
+    "operator_auth": {
+      "file": "${ASSETS_DIR}/operator-auth.json"
+    },
+    "rpc_keys": {
+      "file": "${ASSETS_DIR}/worker-keys.json"
+    },
+    "worker_a_token": {
+      "file": "${ASSETS_DIR}/worker-a-token"
+    },
+    "worker_b_token": {
+      "file": "${ASSETS_DIR}/worker-b-token"
+    },
+    "runtime_token": {
+      "file": "${ASSETS_DIR}/runtime-token"
+    },
+    "nats_token": {
+      "file": "${ASSETS_DIR}/nats-token"
+    },
+    "github_config": {
+      "file": "${ASSETS_DIR}/github.json"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily ForgeSwarm backup; retained in encrypted S3 for seven days
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+Unit=forgeswarm-backup.service
+
+[Install]
+WantedBy=timers.target

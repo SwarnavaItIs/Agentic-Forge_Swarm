@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "session_authorized": false,
+  "id": "00000000000000000000000000000000",
+  "expires_at": "2000-01-01T00:00:00Z",
+  "repository": {"id": 0, "owner": "REPLACE", "name": "REPLACE", "target_branch": "main"},
+  "pricing_sha256": "REPLACE_WITH_EXACT_FILE_HASH_AFTER_PRICE_REVIEW",
+  "max_total_estimate_microusd": 0,
+  "max_project_estimate_microusd": 0
+}

@@ -4,7 +4,7 @@ services:
     image: otel/opentelemetry-collector-contrib:0.163.2@sha256:7f22d2a6748110ffb6a59bc0df448bccbf501cdb667d610ede4c61d3863d5849
     platform: linux/amd64
     command: ["--config=/etc/otel.yaml"]
-    ports: ["127.0.0.1:4317:4317", "127.0.0.1:9464:9464", "127.0.0.1:13133:13133"]
+    ports: ["127.0.0.1:${OTLP_PORT:-4317}:4317", "127.0.0.1:${METRICS_PORT:-9464}:9464", "127.0.0.1:${COLLECTOR_HEALTH_PORT:-13133}:13133"]
     volumes: ["./collector.yaml:/etc/otel.yaml:ro"]
     read_only: true
     cap_drop: [ALL]
@@ -17,7 +17,7 @@ services:
     image: cr.jaegertracing.io/jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
     platform: linux/amd64
     command: ["--config=/etc/jaeger.yaml"]
-    ports: ["127.0.0.1:16686:16686"]
+    ports: ["127.0.0.1:${JAEGER_PORT:-16686}:16686"]
     volumes: ["./jaeger.yaml:/etc/jaeger.yaml:ro"]
     read_only: true
     cap_drop: [ALL]
@@ -29,7 +29,7 @@ services:
     image: prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
     platform: linux/amd64
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=24h", "--storage.tsdb.retention.size=128MB", "--query.max-concurrency=2", "--query.timeout=2s"]
-    ports: ["127.0.0.1:9095:9090"]
+    ports: ["127.0.0.1:${PROMETHEUS_PORT:-9095}:9090"]
     volumes: ["./prometheus.yaml:/etc/prometheus/prometheus.yml:ro", "metrics:/prometheus"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -39,7 +39,7 @@ services:
   grafana:
     image: grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
     platform: linux/amd64
-    ports: ["127.0.0.1:3000:3000"]
+    ports: ["127.0.0.1:${GRAFANA_PORT:-3000}:3000"]
     environment:
       GOMAXPROCS: "2"
       GOMEMLIMIT: "256MiB"

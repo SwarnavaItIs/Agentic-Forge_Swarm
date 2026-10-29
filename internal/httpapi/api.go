@@ -76,6 +76,7 @@ func (w *responseWriter) Write(b []byte) (int, error) {
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/session", a.session)
+	mux.HandleFunc("/v1/diagnostics", a.method(http.MethodGet, a.diagnostics))
 	mux.HandleFunc("/v1/approvals", a.method(http.MethodGet, a.approvals))
 	mux.HandleFunc("/v1/approvals/{id}", a.approval)
 	mux.HandleFunc("/v1/github/import", a.method(http.MethodPost, a.importIssue))

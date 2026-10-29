@@ -12,6 +12,7 @@ import time
 import uuid
 
 import dev
+import private_transport
 
 ROOT=dev.ROOT
 EVIDENCE=ROOT / "artifacts/verification/stage-02"
@@ -82,6 +83,7 @@ def smoke():
             dev.run(["go","build","-o",ROOT / f"bin/{name}-linux",f"./cmd/{name}"],env=dev.ENV | {"GOOS":"linux","GOARCH":"amd64","CGO_ENABLED":"0"},label=f"dag-build-{name}")
         processes=[]
         token=env["TEST_RESOURCE_TOKEN"]
+        transport=private_transport.Transport(token)
         url=re.sub(r"127\.0\.0\.1:\d+/","db:5432/",env["DATABASE_URL"])
         base=None
         def start(name):
@@ -89,9 +91,10 @@ def smoke():
             args=["docker","run","-d","--name",container,"--label",f"forgeswarm.verification={token}","--platform","linux/amd64",
                   "--network",env["TEST_DOCKER_NETWORK"],"--mount",f"type=bind,source={ROOT / 'bin'},target=/app,readonly",
                   "-e",f"DATABASE_URL={url}","-e","SCHEDULER_INTERVAL=100ms","-e","SCHEDULER_BATCH_SIZE=2","-e","SCHEDULER_SCAN_TIMEOUT=1s"]
-            if name=="api":args += ["-p","127.0.0.1::8080","-e","HTTP_ADDR=0.0.0.0:8080"]
+            if name=="api":args += [*transport.arguments(),"-e","HTTP_ADDR=0.0.0.0:8080"]
             dev.run([*args,dev.GO_IMAGE,f"/app/{name}-linux"],label=f"dag-start-{name}")
             processes.append(container)
+            if name=="api":transport.bind(container)
             return container
         def remove(container):
             code,owner=dev.run(["docker","inspect","--format",'{{ index .Config.Labels "forgeswarm.verification" }}',container],check=False,quiet=True,label="dag-ownership")
@@ -111,12 +114,12 @@ def smoke():
                 assert exit_code.strip()=="137", "scheduler not actually killed"
             remove(container);processes.remove(container)
         def get_graph(receipt):
-            code,graph,_=dev.http(base,"/v1/workflows/"+receipt["id"]+"/graph")
+            code,graph,_=transport.request(base,"/v1/workflows/"+receipt["id"]+"/graph")
             assert code==200
             return graph
         def states(receipt):return {n["key"]:n["status"] for n in get_graph(receipt)["nodes"]}
         def events(receipt):
-            code,page,_=dev.http(base,"/v1/workflows/"+receipt["id"]+"/events?limit=100")
+            code,page,_=transport.request(base,"/v1/workflows/"+receipt["id"]+"/events?limit=100")
             assert code==200
             assert [e["sequence"] for e in page["events"]]==list(range(1,len(page["events"])+1))
             return page["events"]
@@ -137,14 +140,14 @@ def smoke():
         try:
             api=start("api")
             _,published=dev.run(["docker","port",api,"8080/tcp"],quiet=True,label="dag-api-port")
-            base="http://127.0.0.1:"+published.strip().rsplit(":",1)[1]
+            base=transport.base
             def api_ready():
-                try:return dev.http(base,"/health/ready")[0]==200
+                try:return transport.request(base,"/health/ready")[0]==200
                 except OSError:return False
             dev.poll(api_ready,"DAG API readiness")
             fixture=json.loads((ROOT / "tests/fixtures/diamond.json").read_text(encoding="utf-8"))
             body=json.dumps(fixture).encode()
-            code,receipt,_=dev.http(base,"/v1/workflows","POST",body,"dag-smoke")
+            code,receipt,_=transport.request(base,"/v1/workflows","POST",body,"dag-smoke")
             assert code==201 and set(receipt)=={"id","created_at"}
             workers=[start("scheduler"),start("scheduler")]
             dev.poll(lambda:states(receipt)=={"a":"READY","b":"PENDING","c":"PENDING","d":"PENDING"},"A only READY")
@@ -173,9 +176,9 @@ def smoke():
             assert len(events(receipt))==6
             phase("all tasks seeded success, workflow SUCCEEDED",receipt)
             fixture["tasks"][3]["depends_on"]=["c","b"]
-            assert dev.http(base,"/v1/workflows","POST",json.dumps(fixture).encode(),"dag-smoke")[1]==receipt
+            assert transport.request(base,"/v1/workflows","POST",json.dumps(fixture).encode(),"dag-smoke")[1]==receipt
             failure=json.loads(body);failure["tasks"].append({"key":"independent","kind":"noop"})
-            code,failed,_=dev.http(base,"/v1/workflows","POST",json.dumps(failure).encode(),"failed-branch")
+            code,failed,_=transport.request(base,"/v1/workflows","POST",json.dumps(failure).encode(),"failed-branch")
             assert code==201
             dev.poll(lambda:states(failed)["independent"]=="READY" and states(failed)["a"]=="READY","independent roots")
             seed(failed,"a","FAILED")
@@ -192,7 +195,7 @@ def smoke():
             dev.run(["docker","start",db],label="scheduler-db-recovery")
             dev.poll(is_ready,"PostgreSQL restart")
             dev.poll(api_ready,"API after DB recovery")
-            code,recovered,_=dev.http(base,"/v1/workflows","POST",body,"post-outage")
+            code,recovered,_=transport.request(base,"/v1/workflows","POST",body,"post-outage")
             assert code==201
             dev.poll(lambda:states(recovered)["a"]=="READY","scheduler continues after DB outage")
             phase("scheduler recovered from database outage",recovered)

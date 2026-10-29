@@ -35,7 +35,7 @@ func Init(service string) func() {
 		endpoint = "127.0.0.1:4317"
 	}
 	endpoint = strings.TrimPrefix(endpoint, "http://")
-	if !telemetry.LocalEndpoint(endpoint) {
+	if !telemetry.CollectorEndpoint(endpoint, os.Getenv("TELEMETRY_DOCKER_LOCAL") == "true") {
 		slog.Warn("telemetry_disabled", "error_class", "local_endpoint_required")
 		return noop
 	}

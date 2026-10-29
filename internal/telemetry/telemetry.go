@@ -52,6 +52,12 @@ func LocalEndpoint(addr string) bool {
 	return err == nil && ip != nil && ip.IsLoopback() && port != "" && len(addr) <= 100
 }
 
+// The explicit local Compose profile has one fixed Collector alias. This is
+// never enabled by workflow input, forwarded headers or a remote trace parent.
+func CollectorEndpoint(addr string, localDocker bool) bool {
+	return LocalEndpoint(addr) || localDocker && addr == "collector:4317"
+}
+
 var operations = []string{"http.request", "scheduler.scan", "outbox.publish", "broker.consume", "attempt.run", "attempt.claim", "attempt.finish", "model.call", "agent.tool", "tool.authorize", "sandbox.run", "approval.decide", "publication.run", "evaluation.run", "evaluation.test"}
 var outcomes = []string{"ok", "error", "cancelled", "timeout", "denied", "failed", "accepted", "budget_exhausted", "provider_error", "conflict", "rejected", "incomplete", "2xx", "4xx", "5xx", "passed", "task_failure", "infrastructure_failure", "provider_failure", "policy_violation", "spending_cap_exhausted", "review_rejected", "model_rejected"}
 

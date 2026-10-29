@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "go_toolchain": "go1.26.10",
+  "govulncheck": "golang.org/x/vuln/cmd/govulncheck@v1.9.0",
+  "python": "3.12",
+  "pip_audit": "2.10.1",
+  "cfn_lint": "1.58.0",
+  "cfn_guard": "3.2.1",
+  "guard_windows_sha256": "52af28c02081f1067c6710c08619d359899734ec59d51f17f68e1b4b396a1203",
+  "network": "Trusted dependency preparation and vulnerability feeds require verified TLS. No insecure TLS fallback.",
+  "scope": "Source-reachable Go vulnerabilities, all npm dependencies, locked Python runtime dependencies and tracked configuration controls. OS/image package vulnerabilities are not covered."
+}

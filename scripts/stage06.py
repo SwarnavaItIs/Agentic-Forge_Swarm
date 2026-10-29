@@ -90,6 +90,12 @@ def prepare_runtime():
         if source.is_file():
             manifest.update(source.relative_to(folder).as_posix().encode() + b"\0" + source.read_bytes())
     tag = "forgeswarm-agent-runtime:" + manifest.hexdigest()
+    # Rebuilding identical inputs can replace the manifest/attestation digest
+    # behind this tag and invalidate image IDs held by an active Compose stack.
+    # The tag already binds every trusted source, lock and wheel byte.
+    code, existing = dev.run(["docker", "image", "inspect", "--format", "{{.Id}}", tag], check=False, quiet=True, label="runtime-content-cache")
+    if code == 0:
+        return existing.strip()
     code, _ = dev.run(["docker", "image", "inspect", BASE], check=False, quiet=True, label="python-base")
     if code:
         dev.run(["docker", "pull", BASE], timeout=240, label="python-base-prepare")
@@ -104,7 +110,11 @@ def runtime(image, telemetry=False):
     name = "forgeswarm-agent-test-" + resource
     env = ENV | {"AGENT_RUNTIME_TOKEN": token}
     try:
-        trace_env = ["-e","TELEMETRY_ENABLED=true","-e","TELEMETRY_SAMPLE_RATIO=1","-e","OTEL_EXPORTER_OTLP_ENDPOINT=host.docker.internal:4317"] if telemetry else []
+        trace_env = []
+        if telemetry:
+            import observability
+            observability.owned()
+            trace_env = ["--network", "forgeswarm-observability_default", "-e", "TELEMETRY_ENABLED=true", "-e", "TELEMETRY_SAMPLE_RATIO=1", "-e", "TELEMETRY_DOCKER_LOCAL=true", "-e", "OTEL_EXPORTER_OTLP_ENDPOINT=collector:4317"]
         blank_proxies = [value for key in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"] for value in ["-e", key + "="]]
         dev.run(["docker", "run", "-d", "--name", name, "--label", "forgeswarm.verification=" + resource,
                  "--platform", "linux/amd64", "--pull=never", "--read-only", "--user", "10002:10002",

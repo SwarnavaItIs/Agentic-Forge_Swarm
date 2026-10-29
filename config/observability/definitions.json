@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "window": "historical database projections use rolling 24 hours; current workers/leases/outbox are instantaneous",
+  "window": "historical database projections use a rolling 24 hours at the read-only transaction timestamp; workers, leases and outbox share that observation instant; mutation fences continue using the database wall clock",
   "histogram_buckets_seconds": [
     0.005,
     0.02,

@@ -1,4 +1,4 @@
-"""Cross-platform stage-01 commands. Python 3.10+, Go 1.26.3, Docker required.
+"""Cross-platform stage-01 commands. Python 3.10+, Go 1.26.10, Docker required.
 
 Only uniquely named, labelled verification containers are deleted. Development
 Compose storage is persistent, and db-down never uses --volumes. Verification
@@ -12,6 +12,9 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
+import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -26,13 +29,13 @@ if hasattr(sys.stdout, "reconfigure"):
 
 ROOT = Path(__file__).resolve().parent.parent
 IMAGE = "postgres:17.11-bookworm@sha256:66aafa11cf15800a3c94763f7e11d1e7b2e37e5e84bc4ce027cb6e1e4bfaf4df"
-GO_IMAGE = "golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b"
+GO_IMAGE = "golang:1.26.10-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af"
 BIN = ROOT / "bin" / ("api.exe" if os.name == "nt" else "api")
 EVIDENCE = ROOT / "artifacts/verification/stage-01"
 ENV = os.environ.copy()
 ENV.update({"GOCACHE": str(ROOT / ".cache/go-build"), "GOMODCACHE": str(ROOT / ".cache/go-mod"),
             "GOPATH": str(ROOT / ".cache/gopath"), "GOTMPDIR": str(ROOT / ".cache/go-tmp"),
-            "GOENV": "off", "GOTOOLCHAIN": "local"})
+            "GOENV": "off", "GOTOOLCHAIN": "go1.26.10", "GOMAXPROCS": "2", "GOFLAGS": "-p=2"})
 COMMANDS = []
 RECORD = False
 
@@ -123,7 +126,7 @@ def build():
     run(["go", "build", "-o", BIN.parent / ("migrate.exe" if os.name == "nt" else "migrate"), "./cmd/migrate"], label="build-migrate")
     if (ROOT / "cmd/scheduler").exists():
         run(["go", "build", "-o", BIN.parent / ("scheduler.exe" if os.name == "nt" else "scheduler"), "./cmd/scheduler"], label="build-scheduler")
-    for name in ["coordinator","relay","worker","sandbox-fixture","sandbox-prepare","publisher","github-test-server","operator-init","evaluate"]:
+    for name in ["coordinator","relay","worker","sandbox-fixture","sandbox-prepare","publisher","github-test-server","operator-init","evaluate","launch","tlsgen","seed-assets"]:
         if (ROOT / "cmd" / name).exists():run(["go","build","-o",BIN.parent / (name+".exe" if os.name=="nt" else name),"./cmd/"+name],label="build-"+name)
 
 
@@ -137,7 +140,7 @@ def race(args, env=None, container=None, label="race"):
     docker = ["docker", "run", "--rm", "--name", name, "--label", f"forgeswarm.verification={token}", "--platform", "linux/amd64",
               "--mount", f"type=bind,source={ROOT},target=/src", "-w", "/src",
               "-e", "GOCACHE=/src/.cache/linux-build", "-e", "GOMODCACHE=/src/.cache/go-mod",
-              "-e", "GOTELEMETRY=off", "-e", "GOTOOLCHAIN=local"]
+              "-e", "GOTELEMETRY=off", "-e", "GOTOOLCHAIN=local", "-e", "GOMAXPROCS=2", "-e", "GOFLAGS=-p=2"]
     if container:
         docker += ["--network", env.get("TEST_GO_NETWORK",env["TEST_DOCKER_NETWORK"])]
         test_url = re.sub(r"127\.0\.0\.1:\d+/", "db:5432/", env["TEST_DATABASE_URL"])
@@ -158,13 +161,15 @@ def integration():
              env=env, container=container, label="integration")
 
 
-def http(base, path, method="GET", data=None, key=None):
+def http(base, path, method="GET", data=None, key=None, *, context=None, token=None):
     headers = {"Content-Type": "application/json"} if data is not None else {}
     if key:
         headers["Idempotency-Key"] = key
+    if token:
+        headers["Authorization"] = "Bearer " + token
     req = urllib.request.Request(base + path, data=data, headers=headers, method=method)
     try:
-        response = urllib.request.urlopen(req, timeout=3)
+        response = urllib.request.urlopen(req, timeout=3, context=context)
     except urllib.error.HTTPError as exc:
         response = exc
     with response:
@@ -175,6 +180,31 @@ def smoke():
     if not BIN.exists():
         build()
     with database() as (env, container, is_ready):
+        # Nonlocal listeners now require verified HTTPS and operator identity.
+        # Keep the original restart/outage assertions with this stronger setup.
+        private = ROOT / ".cache" / ("smoke-" + uuid.uuid4().hex)
+        private.mkdir(mode=0o700)
+        run(["go", "run", "./cmd/tlsgen", "-out", private / "tls"], label="smoke-private-ca")
+        token = secrets.token_hex(32)
+        (private / "auth.json").write_text(json.dumps({"operator": {"actor": "smoke", "token": token}, "reader": {"actor": "smoke-reader", "token": secrets.token_hex(32)}}))
+        context = ssl.create_default_context(cafile=str(private / "tls/ca.pem"))
+        active_api = None
+        def request(base, path, method="GET", data=None, key=None):
+            if os.name == "nt":
+                # Verify in the owned Linux namespace: host antivirus may
+                # replace private certificates, including loopback traffic.
+                config = ['url = '+json.dumps('https://127.0.0.1:8080'+path), 'cacert = "/private/tls/ca.pem"', 'max-time = 3', 'silent', 'show-error', 'include', 'request = '+json.dumps(method), 'header = '+json.dumps('Host: '+base.removeprefix('https://')), 'header = '+json.dumps('Authorization: Bearer '+token)]
+                if key:
+                    config.append('header = '+json.dumps('Idempotency-Key: '+key))
+                if data is not None:
+                    config += ['header = "Content-Type: application/json"', 'data-binary = '+json.dumps(data.decode())]
+                value = subprocess.run(['docker', 'exec', '-i', active_api, 'curl', '--config', '-'], input='\n'.join(config)+'\n', capture_output=True, text=True, encoding='utf-8', timeout=8)
+                if value.returncode:
+                    raise OSError('owned CA-verified smoke transport failed')
+                head, body = value.stdout.split('\n\n', 1)
+                headers = {key.title(): value for key, value in (line.split(': ', 1) for line in head.splitlines()[1:] if ': ' in line)}
+                return int(head.split()[1]), json.loads(body), headers
+            return http(base, path, method, data, key, context=context, token=token)
         run(["go", "run", "./cmd/migrate", "up"], env=env, label="smoke-migrate")
         run(["go", "run", "./cmd/migrate", "status"], env=env, label="smoke-migration-status")
         linux_bin = ROOT / "bin/api-linux"
@@ -186,20 +216,27 @@ def smoke():
         log_path.write_text("", encoding="utf-8")
         started = timestamp()
         def start_api():
-            nonlocal base
+            nonlocal base, active_api
             p = "forgeswarm-api-" + uuid.uuid4().hex
             url = re.sub(r"127\.0\.0\.1:\d+/", "db:5432/", env["DATABASE_URL"])
+            with socket.socket() as sock:
+                sock.bind(("127.0.0.1", 0))
+                selected_port = sock.getsockname()[1]
             run(["docker", "run", "-d", "--name", p, "--label", f"forgeswarm.verification={env['TEST_RESOURCE_TOKEN']}",
-                 "--platform", "linux/amd64", "--network", env["TEST_DOCKER_NETWORK"], "-p", "127.0.0.1::8080",
+                 "--platform", "linux/amd64", "--network", env["TEST_DOCKER_NETWORK"], "-p", f"127.0.0.1:{selected_port}:8080",
                  "--mount", f"type=bind,source={ROOT / 'bin'},target=/app,readonly",
+                 "--mount", f"type=bind,source={private},target=/private,readonly",
+                 "-e", "HTTP_TLS_CERT=/private/tls/api.pem", "-e", "HTTP_TLS_KEY=/private/tls/api-key.pem",
+                 "-e", f"UI_ORIGIN=https://127.0.0.1:{selected_port}", "-e", "OPERATOR_AUTH_FILE=/private/auth.json",
                  "-e", f"DATABASE_URL={url}", "-e", "HTTP_ADDR=0.0.0.0:8080", "-e", "REQUEST_TIMEOUT=1s",
                  "-e", "READY_TIMEOUT=300ms", "-e", "CONNECT_TIMEOUT=300ms", GO_IMAGE, "/app/api-linux"], label="api-start")
             _, published = run(["docker", "port", p, "8080/tcp"], quiet=True, label="api-port")
             port = published.strip().rsplit(":", 1)[1]
-            base = f"http://127.0.0.1:{port}"
+            base = f"https://127.0.0.1:{port}"
+            active_api = p
             def ready():
                 try:
-                    return http(base, "/health/ready")[0] == 200
+                    return request(base, "/health/ready")[0] == 200
                 except (OSError, ValueError):
                     return False
             try:
@@ -225,34 +262,34 @@ def smoke():
         try:
             process = start_api()
             body = b'{"name":"Smoke workflow","tasks":[{"key":"diagnostic","kind":"noop"}]}'
-            code, receipt, headers = http(base, "/v1/workflows", "POST", body, "smoke-retry")
+            code, receipt, headers = request(base, "/v1/workflows", "POST", body, "smoke-retry")
             assert code == 201 and set(receipt) == {"id", "created_at"}
             path = headers.get("Location")
             assert path == "/v1/workflows/" + receipt["id"]
             # Receipt is deliberately not used until the old process has exited.
             stop_api(process)
             process = start_api()
-            code, retry, _ = http(base, "/v1/workflows", "POST", body, "smoke-retry")
+            code, retry, _ = request(base, "/v1/workflows", "POST", body, "smoke-retry")
             assert code == 201 and retry == receipt, "restart changed creation receipt"
-            code, detail, _ = http(base, path)
+            code, detail, _ = request(base, path)
             assert code == 200 and detail["tasks"][0]["status"] == "PENDING"
-            code, cancellation, _ = http(base, path + "/cancel", "POST", b"")
+            code, cancellation, _ = request(base, path + "/cancel", "POST", b"")
             assert code == 200 and cancellation["version"] == 2
-            _, cancelled, _ = http(base, path)
-            assert http(base, path + "/cancel", "POST", b"")[1] == cancellation
-            assert http(base, path)[1] == cancelled, "repeat cancellation mutated timestamps"
-            assert http(base, "/v1/workflows", "POST", body, "smoke-retry")[1] == receipt
-            _, events, _ = http(base, path + "/events?after=0&limit=1")
+            _, cancelled, _ = request(base, path)
+            assert request(base, path + "/cancel", "POST", b"")[1] == cancellation
+            assert request(base, path)[1] == cancelled, "repeat cancellation mutated timestamps"
+            assert request(base, "/v1/workflows", "POST", body, "smoke-retry")[1] == receipt
+            _, events, _ = request(base, path + "/events?after=0&limit=1")
             assert len(events["events"]) == 1 and events["next_after"] == 1
-            assert http(base, path + "/events?after=1")[1]["next_after"] == 2
+            assert request(base, path + "/events?after=1")[1]["next_after"] == 2
             run(["docker", "stop", "--time", "5", container], timeout=15, label="smoke-outage")
-            assert http(base, "/health/live")[0] == 200
-            assert http(base, "/health/ready")[0] == 503
-            assert http(base, path)[0] == 503
+            assert request(base, "/health/live")[0] == 200
+            assert request(base, "/health/ready")[0] == 503
+            assert request(base, path)[0] == 503
             run(["docker", "start", container], label="smoke-recovery")
             poll(is_ready, "PostgreSQL recovery")
-            poll(lambda: http(base, "/health/ready")[0] == 200, "API readiness recovery")
-            assert http(base, path)[1] == cancelled, "DB restart lost records"
+            poll(lambda: request(base, "/health/ready")[0] == 200, "API readiness recovery")
+            assert request(base, path)[1] == cancelled, "DB restart lost records"
             stop_api(process)
             print("smoke: six endpoints, API restart, no-op cancellation, DB outage/recovery and clean shutdown passed", flush=True)
             if RECORD:
@@ -268,7 +305,7 @@ def smoke():
 
 def fingerprint():
     paths = [ROOT / f for f in ["go.mod", "go.sum", ".env.example", ".gitignore", ".gitattributes", "Makefile", "compose.yaml"]]
-    for folder in ["cmd", "internal", "migrations", "tests", "scripts", ".github","api","config","agent-runtime","web"]:
+    for folder in ["cmd", "internal", "migrations", "tests", "scripts", ".github","api","config","agent-runtime","web","deploy","performance"]:
         paths.extend(p for p in (ROOT / folder).rglob("*") if p.is_file() and not any(part in {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".venv", ".cache", "node_modules", "dist", "test-results", "playwright-report"} or part.startswith("pytest-cache-files-") for part in p.parts))
     digest = hashlib.sha256()
     for path in sorted(paths):
@@ -332,6 +369,9 @@ def fmt_check():
 
 def main():
     global RECORD
+    if len(sys.argv)>1 and sys.argv[1] in {"verify-stage-10", "verify-all", "verify-resume", "demo", "demo-live", "platform-up", "platform-down", "performance", "deployment-validate", "deployment-preview"}:
+        import stage10
+        stage10.command(sys.argv[1]);return
     if len(sys.argv)>1 and sys.argv[1] in {"observability-up","eval-fixture","eval-real","verify-stage-09"}:
         import stage09
         stage09.command(sys.argv[1]);return
@@ -368,6 +408,17 @@ def main():
         stage02.verify()
         return
     if command == "help":
+        print("Stage 10: demo; platform-up; platform-down (keeps data); performance; verify-stage-10; verify-all.\n"
+              "verify-resume reuses only completed prior gates with the exact same source fingerprint and unchanged hashed evidence. Source edits require verify-all.\n"
+              "Full private Compose stack uses a per-installation CA, authenticated HTTPS and ignored file-injected secrets.\n"
+              "Trust the generated private CA for the local browser; credentials path is printed, never credentials.\n"
+              "Performance: 10/50/100/500 closed-loop diagnostic submissions, max 10 VUs, bounded quotas; 50 at one/two workers.\n"
+              "Goals are declared in performance/scenarios.json; raw JSON/CSV retained under ignored stage-10 evidence.\n"
+              "Deployment: deployment-validate (offline); deployment-preview (instructions only). No automatic provisioning/deletion.\n"
+              "Migrate additive 00010 before role upgrade. Compiler/tool images use Go 1.26.10; fixture minimum stays 1.26.3.\n"
+              "Live publication remains github-live-demo with exact recorded approval/repository guards; no paid calls in demo.\n")
+        print("demo-live: requires existing explicit spend/repository authority, LIVE_DEMO_AUTHORIZATION_FILE, LIVE_DEMO_URL, LIVE_RUNTIME_PROVIDER=openai, LIVE_DEMO_CONFIRM=existing-session-authorized-spend, OPERATOR_AUTH_FILE, AGENT_PRICING_FILE, GITHUB_CONFIG_FILE and GITHUB_LIVE_ISSUE_NUMBER.\n"
+              "For HTTPS set LIVE_DEMO_CA_FILE. Full project estimate is durably reserved against an explicit total cap before admission. Interrupted locks/unknown charges require manual reconciliation. This command never approves or publishes.\n")
         print("Stage 09: observability-up; eval-fixture; guarded eval-real; verify-stage-09.\n"
               "Local OTLP endpoint 127.0.0.1:4317; enable TELEMETRY_ENABLED=true on trusted services. Grafana 3000, traces 16686, Prometheus 9095.\n"
               "Migrate additive 00009 before upgrading roles. Config/metric units/buckets: config/observability/definitions.json. IDs never become labels.\n"
@@ -462,7 +513,7 @@ def main():
               "help, db-up, db-down (keeps data), migrate-up, migrate-status, run, fmt, vet, test,\n"
               "test-race, test-integration (requires Docker; never skips), build, smoke, verify-stage-01,\n"
               "verify-stage-02, run-scheduler\n"
-              "Go 1.26.3, Python 3.10+, Docker Linux engine required; Linux hosts also need a C compiler.\n"
+              "Go 1.26.10, Python 3.10+, Docker Linux engine required; Linux hosts also need a C compiler.\n"
               "Windows race tests use a pinned Linux Go container; smoke tests run Linux API containers.\n"
               "Set env vars from .env.example; API does not automatically load .env or migrate.\n"
               "Stage 02: migrate-up, upgrade API, then run-scheduler; never mix the old API with the new scheduler.\n"

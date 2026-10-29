@@ -31,6 +31,9 @@ def setup() -> None:
         local = (
             host == "host.docker.internal"
             and os.environ.get("AGENT_INSECURE_LOCAL") == "true"
+        ) or (
+            endpoint == "collector:4317"
+            and os.environ.get("TELEMETRY_DOCKER_LOCAL") == "true"
         )
     if not local or not separator or not port.isdigit() or not 1 <= int(port) <= 65535:
         return

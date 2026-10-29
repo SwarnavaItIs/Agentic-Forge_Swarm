@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"forgeswarm/internal/telemetry/setup"
 	"log/slog"
@@ -36,6 +37,14 @@ func run(logger *slog.Logger) error {
 		logger.Error("invalid_config", "reason", err.Error())
 		return err
 	}
+	authPath, githubPath := os.Getenv("OPERATOR_AUTH_FILE"), os.Getenv("GITHUB_CONFIG_FILE")
+	if err = cfg.ValidateHTTP(true); err != nil {
+		return err
+	}
+	if !httpapi.LoopbackAddress(cfg.HTTPAddr) && authPath == "" {
+		return errors.New("nonlocal API requires operator authentication")
+	}
+	privateTransport := httpapi.LoopbackAddress(cfg.HTTPAddr) || cfg.HTTPCert != "" && authPath != "" && cfg.UIOrigin != ""
 	poolCfg, err := cfg.PoolConfig()
 	if err != nil {
 		return err
@@ -66,9 +75,8 @@ func run(logger *slog.Logger) error {
 		}
 	}
 	api := httpapi.New(store, logger, cfg.RequestTimeout, cfg.ReadyTimeout).WithAgentCatalog(os.Getenv("AGENT_CATALOG"))
-	authPath, githubPath := os.Getenv("OPERATOR_AUTH_FILE"), os.Getenv("GITHUB_CONFIG_FILE")
 	if authPath != "" || githubPath != "" {
-		if !httpapi.LoopbackAddress(cfg.HTTPAddr) || authPath == "" {
+		if !privateTransport || authPath == "" {
 			return errors.New("authenticated controls require loopback and OPERATOR_AUTH_FILE")
 		}
 		forbidden := []string{os.Getenv("AGENT_RUNTIME_TOKEN"), os.Getenv("WORKER_TOKEN")}
@@ -102,7 +110,7 @@ func run(logger *slog.Logger) error {
 	}
 	var handler http.Handler = api.Handler()
 	if os.Getenv("COLLAB_ENABLED") == "true" || os.Getenv("WEB_DIR") != "" || authPath != "" {
-		if !httpapi.LoopbackAddress(cfg.HTTPAddr) {
+		if !privateTransport {
 			return errors.New("dashboard and collaboration controls require local loopback")
 		}
 		rounds := 2
@@ -119,14 +127,21 @@ func run(logger *slog.Logger) error {
 		if os.Getenv("COLLAB_ENABLED") == "true" {
 			api.WithCollaboration(registry, rounds)
 		}
-		handler = httpapi.PrivateUI(api.Handler(), os.Getenv("WEB_DIR"))
+		handler = httpapi.PrivateUIOrigin(api.Handler(), os.Getenv("WEB_DIR"), cfg.UIOrigin)
 	}
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: handler, ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		ReadTimeout: cfg.ReadTimeout, WriteTimeout: cfg.WriteTimeout, IdleTimeout: cfg.IdleTimeout, MaxHeaderBytes: 16 << 10}
+	server.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS13}
 	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- server.ListenAndServe() }()
+	go func() {
+		if cfg.HTTPCert != "" {
+			serveErr <- server.ListenAndServeTLS(cfg.HTTPCert, cfg.HTTPKey)
+		} else {
+			serveErr <- server.ListenAndServe()
+		}
+	}()
 	logger.Info("api_started", "address", cfg.HTTPAddr)
 	select {
 	case err := <-serveErr:

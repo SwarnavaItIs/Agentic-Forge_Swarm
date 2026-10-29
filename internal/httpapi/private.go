@@ -16,19 +16,33 @@ func LoopbackAddress(address string) bool {
 // The unauthenticated dashboard is a local operator surface. Reject rebinding
 // hosts and cross-origin control requests; deployment authentication is deferred.
 func PrivateUI(api http.Handler, dir string) http.Handler {
+	return PrivateUIOrigin(api, dir, "")
+}
+
+func PrivateUIOrigin(api http.Handler, dir, expected string) http.Handler {
 	files := http.FileServer(http.Dir(dir))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
 		if !strings.Contains(host, ":") {
 			host = net.JoinHostPort(host, "80")
 		}
-		if !LoopbackAddress(host) {
+		if expected != "" {
+			value, err := url.Parse(expected)
+			if err != nil || value.Scheme != "https" || value.Host != r.Host || value.User != nil || value.Path != "" || value.RawQuery != "" || value.Fragment != "" || r.TLS == nil {
+				http.Error(w, "Configured HTTPS origin required.", http.StatusForbidden)
+				return
+			}
+		} else if !LoopbackAddress(host) {
 			http.Error(w, "Local operator access only.", http.StatusForbidden)
 			return
 		}
 		if origin := r.Header.Get("Origin"); origin != "" {
 			value, err := url.Parse(origin)
-			if err != nil || value.Scheme != "http" || value.Host != r.Host {
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+			if err != nil || len(r.Header.Values("Origin")) != 1 || value.Scheme != scheme || value.Host != r.Host || value.User != nil || value.Path != "" || value.RawQuery != "" || value.Fragment != "" {
 				http.Error(w, "Same-origin access required.", http.StatusForbidden)
 				return
 			}

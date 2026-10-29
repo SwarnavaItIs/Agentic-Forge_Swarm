@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "status": "offline configuration only; no AWS deployment or service-side validation performed",
+  "architecture": "Two private EC2 hosts: control services and a separate trusted worker host running network-disabled sandboxes. Single-node DB/broker are not highly available.",
+  "prerequisites": [
+    "Explicit AWS authorization, region, account and cost budget before any provisioning command.",
+    "Existing private VPC/subnet with no public IP assignment or internet route; private DNS, SSM/ssmmessages/Secrets Manager interface endpoints and S3 gateway endpoint. Endpoint security group must admit 443 from both instance security groups.",
+    "Pinned x86_64 prepared AMI: Docker/Compose, Python 3.12, AWS CLI v2, SSM agent >=3.3.40.0, dedicated encrypted persistent Docker data; no repository credentials or user source baked in.",
+    "Prepared AMI contains /opt/forgeswarm/deploy/aws/bootstrap.py and the reviewed release manifest. Upload the exact release bundle to the configured immutable S3 object; compare SHA-256 before loading images.",
+    "Provision separate control/execution Secrets Manager JSON documents using the bootstrap allowlists. The execution secret must contain no DATABASE_URL, operator identity, GitHub credential or CA private key.",
+    "Control certificate SAN includes the chosen private IP. Certificates and operator credentials are externally rotated; private CA key is never deployed.",
+    "CloudTrail and SSM operator session auditing/access controls must already exist. Actual AMI, endpoint, route, IAM simulation and quota checks remain required in the target account.",
+    "Prepared AMI includes amazon-efs-utils and mounts the stack EFS access point using tls,iam; execution mount is read-only. EFS automatic backup must be configured/monitored in the target account."
+  ],
+  "preview": [
+    "make deployment-validate",
+    "aws cloudformation validate-template --template-body file://deploy/aws/private.json",
+    "aws cloudformation create-change-set --stack-name <owned-stack> --change-set-name reviewed-preview --change-set-type CREATE --template-body file://deploy/aws/private.json --parameters file://<private-parameters.json> --capabilities CAPABILITY_IAM",
+    "aws cloudformation describe-change-set --stack-name <owned-stack> --change-set-name reviewed-preview",
+    "Review resource ownership, private routes, AMI, recurring costs, replacement/retention and secrets before separately authorizing execute-change-set."
+  ],
+  "access": "Use AWS-StartPortForwardingSession over authenticated SSM to control port 8443. Verify the installation CA and sign in with the operator token. There is no public ingress or SSH.",
+  "backup": {
+    "command": "sudo python3 /opt/forgeswarm/deploy/aws/backup.py --manifest /opt/forgeswarm/release.json",
+    "schedule": "Prepared AMI systemd timer invokes backup daily at 03:00 UTC; timer installation is checked by bootstrap.",
+    "storage": "Encrypted versioned private S3 bucket; current dumps expire after 7 days, noncurrent versions after 7 days; multipart uploads abort after 1 day.",
+    "restore": "Download an exact version and verify its SHA-256 manifest. Restore using pg_restore into a newly named database, rehash artifact bodies and compare counts, stop old workers/control roles, then switch the secret-backed database URL and restart roles. Preserve the source DB. Local verify-stage-10 exercises this procedure on a disposable DB.",
+    "limitation": "Daily backup implies up to 24 hours of data loss; retention and successful restore monitoring require an operator. No replicated HA or measured RPO/RTO claim."
+  },
+  "rollback": [
+    "Pause admissions and stop worker/runtime, scheduler, relay and publisher roles before changing stateful inputs; retain volumes and source database.",
+    "Preview the previous reviewed image manifest. Same-schema rollback is allowed only for binaries that explicitly support migration 10 and the same normalization versions.",
+    "Never automatically migrate down. Incompatible schema rollback requires a tested dump restored into a separate database and an explicit secret switch while all old writers are stopped.",
+    "Inspect retained external publication intents and reconcile observed GitHub operations before resuming publisher; database rollback cannot undo an external PR."
+  ],
+  "teardown": [
+    "Preview only: aws cloudformation list-stack-resources --stack-name <owned-stack>; aws ec2 describe-instances --filters Name=tag:aws:cloudformation:stack-id,Values=<exact-stack-id>.",
+    "Verify exact stack ID and ForgeSwarmOwner tags against the reviewed deployment record; identify retained EC2 instances, root volumes, backup bucket/versions and IAM roles before authorizing removal.",
+    "Stop only the owned project; never use Docker prune, wildcard instance termination, recursive bucket emptying, or removal of shared VPC/endpoints/secrets/release objects.",
+    "CloudFormation retains EC2 hosts and backup storage. Deleting a stack does not remove retained data; manual deletion is a separate explicitly authorized operation."
+  ],
+  "live": "Default provider and GitHub adapter remain controlled TEST_DEMO. Live OpenAI/GitHub require a separately reviewed egress design, explicit spending/repository authorization and exact durable approval; no live deployment claim.",
+  "release_command": "python deploy/aws/package.py --session .cache/platform/<owner> --control-ip 10.0.1.10 --out .cache/<new-release>.tar",
+  "costs": "EC2, retained EBS, shared EFS and its backup, interface endpoints and S3 versions incur regional recurring costs. No cost estimate or budget authorized; review https://aws.amazon.com/efs/pricing/ and region-specific pricing before execution."
+}

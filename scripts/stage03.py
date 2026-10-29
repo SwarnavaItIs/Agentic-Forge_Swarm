@@ -9,6 +9,7 @@ import time
 import urllib.request
 import uuid
 import dev
+import private_transport
 import proto
 
 IMAGE="nats:2.11.6-alpine@sha256:7dec3f8f1ff181975dbdfc0d903d2a9724659648294dbc2ebb2fa3a294d573a6"
@@ -115,6 +116,7 @@ def smoke(recovery=False):
     phases=[]
     with dev.database() as (env,db,db_ready):
         token=env["TEST_RESOURCE_TOKEN"]
+        transport=private_transport.Transport(token)
         private=dev.ROOT / (".cache/stage03-"+token)
         private.mkdir(parents=True)
         assert private.resolve().is_relative_to((dev.ROOT/".cache").resolve())
@@ -184,7 +186,7 @@ def smoke(recovery=False):
             args=["docker","run","-d","--name",container,"--label","forgeswarm.verification="+token,"--platform","linux/amd64","--network",env["TEST_DOCKER_NETWORK"],
                   "--mount",f"type=bind,source={dev.ROOT/'bin'},target=/app,readonly","--mount",f"type=bind,source={private/'cert.pem'},target=/ca/cert.pem,readonly"]
             if role=="coordinator":args += ["--network-alias","coordinator","--mount",f"type=bind,source={private},target=/tls,readonly"]
-            if role=="api":args += ["-p","127.0.0.1::8080"]
+            if role=="api":args += transport.arguments()
             for key in ["DATABASE_URL","NATS_TOKEN","NATS_URL","NATS_TLS_CA","RPC_ADDR","RPC_TLS_CA","WORKER_CAPACITY","WORKER_MAX_CAPACITY","TOTAL_CAPACITY",
                         "ATTEMPT_LEASE","RPC_TIMEOUT","RELAY_LEASE","DISPATCH_POLL","SHUTDOWN_TIMEOUT","SCHEDULER_INTERVAL","SCHEDULER_SCAN_TIMEOUT",
                         "REQUEST_TIMEOUT","CONNECT_TIMEOUT","READY_TIMEOUT","RPC_KEYS_FILE","RPC_TLS_CERT","RPC_TLS_KEY","HTTP_ADDR","WORKER_TOKEN"]:
@@ -194,10 +196,11 @@ def smoke(recovery=False):
             dev.run([*args,dev.GO_IMAGE,"/app/"+role+"-linux"],env=settings,label="process-start-"+name)
             processes[name]=container
             if role=="api":
+                transport.bind(container)
                 _,port=dev.run(["docker","port",container,"8080/tcp"],quiet=True,label="process-api-port")
-                base="http://127.0.0.1:"+port.strip().rsplit(":",1)[1]
+                base=transport.base
                 def ready():
-                    try:return dev.http(base,"/health/ready")[0]==200
+                    try:return transport.request(base,"/health/ready")[0]==200
                     except OSError:return False
                 dev.poll(ready,"distributed API ready")
         def stop(name,killed=False):
@@ -209,12 +212,12 @@ def smoke(recovery=False):
             if not killed and name.startswith("worker_"):assert '"msg":"worker_drained"' in out
             remove(container,token);del processes[name]
         def graph(receipt):
-            code,value,_=dev.http(base,"/v1/workflows/"+receipt["id"]+"/graph")
+            code,value,_=transport.request(base,"/v1/workflows/"+receipt["id"]+"/graph")
             assert code==200
             return value
         def create(key,tasks):
             body=json.dumps({"name":key,"tasks":tasks}).encode()
-            code,receipt,_=dev.http(base,"/v1/workflows","POST",body,key)
+            code,receipt,_=transport.request(base,"/v1/workflows","POST",body,key)
             assert code==201
             return receipt,body
         def finish(receipt):dev.poll(lambda:graph(receipt)["status"]=="SUCCEEDED","accepted diagnostic results",timeout=45)
@@ -230,7 +233,7 @@ def smoke(recovery=False):
             dev.poll(observed,"a durable current claim")
             return owner[0]
         def record(name,receipt,extra=None):
-            code,page,_=dev.http(base,"/v1/workflows/"+receipt["id"]+"/events?limit=100")
+            code,page,_=transport.request(base,"/v1/workflows/"+receipt["id"]+"/events?limit=100")
             assert code==200
             assert [e["sequence"] for e in page["events"]]==list(range(1,len(page["events"])+1))
             phases.append({"phase":name,"workflow_id":receipt["id"],"status":graph(receipt)["status"],"attempts":count(receipt),"history_count":len(page["events"])}| (extra or {}))
@@ -293,7 +296,7 @@ def smoke(recovery=False):
             record("DB outage before claim and real message recovery",unavailable)
 
             cancelled,_=create("active-cancel",[{"key":"a","kind":"delay","delay_ms":10000}]);running_owner(cancelled)
-            assert dev.http(base,"/v1/workflows/"+cancelled["id"]+"/cancel","POST",b"")[0]==200
+            assert transport.request(base,"/v1/workflows/"+cancelled["id"]+"/cancel","POST",b"")[0]==200
             # Stage 04 accepts cancellation first, then waits for stop acknowledgment
             # or lease fencing. Completed diagnostic results remain immutable.
             dev.poll(lambda:graph(cancelled)["status"]=="CANCELLED","cancellation stop handshake")
@@ -349,7 +352,7 @@ def smoke(recovery=False):
             for name in ["api","coordinator","scheduler",*(["scheduler_2"] if recovery else []),"relay",*keys]:start(name)
             dev.poll(lambda:sql("SELECT count(*) FROM workers WHERE NOT draining AND heartbeat_at>clock_timestamp()-interval '2 seconds'")=="2","two restarted registered workers")
             assert graph(diamond)==completed and count(diamond)==4
-            assert dev.http(base,"/v1/workflows","POST",body,"distributed-diamond")[1]==diamond
+            assert transport.request(base,"/v1/workflows","POST",body,"distributed-diamond")[1]==diamond
             probe,_=create("all-processes-restarted",[{"key":"a","kind":"noop"}]);finish(probe)
             record("all role processes restarted, terminal state preserved",diamond)
             for name in [*keys,"relay","scheduler",*(["scheduler_2"] if recovery else []),"coordinator","api"]:stop(name)

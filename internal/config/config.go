@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"forgeswarm/internal/execution"
+	"forgeswarm/internal/telemetry/dbtrace"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -16,6 +17,7 @@ type Config struct {
 	RecoveryPolicy                                                execution.Policy
 	ExecutionLimits                                               execution.Limits
 	HTTPAddr                                                      string
+	HTTPCert, HTTPKey, UIOrigin                                   string
 	DatabaseURL                                                   string
 	RequestTimeout, ReadyTimeout, ConnectTimeout, ShutdownTimeout time.Duration
 	ReadHeaderTimeout, ReadTimeout, WriteTimeout, IdleTimeout     time.Duration
@@ -40,6 +42,14 @@ func Parse(env func(string) (string, bool)) (Config, error) {
 			}
 			*dest = value
 		}
+	}
+	for key, dest := range map[string]*string{"HTTP_TLS_CERT": &c.HTTPCert, "HTTP_TLS_KEY": &c.HTTPKey, "UI_ORIGIN": &c.UIOrigin} {
+		if value, ok := env(key); ok {
+			*dest = value
+		}
+	}
+	if err := c.ValidateHTTP(false); err != nil && (c.HTTPCert != "" || c.HTTPKey != "" || c.UIOrigin != "") {
+		return Config{}, err
 	}
 	host, port, err := net.SplitHostPort(c.HTTPAddr)
 	if err != nil || host == "" || port == "" {
@@ -111,6 +121,7 @@ func (c Config) PoolConfig() (*pgxpool.Config, error) {
 	pool.ConnConfig.ConnectTimeout = c.ConnectTimeout
 	pool.HealthCheckPeriod = 5 * time.Second
 	pool.PingTimeout = c.ReadyTimeout
+	pool.ConnConfig.Tracer = dbtrace.New()
 	pool.MaxConnLifetime = 30 * time.Minute
 	pool.MaxConnIdleTime = 5 * time.Minute
 	return pool, nil

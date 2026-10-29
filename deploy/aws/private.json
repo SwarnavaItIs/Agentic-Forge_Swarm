@@ -1,0 +1,974 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "ForgeSwarm minimal private two-host deployment; offline configuration, no production/HA claim. Prepared AMI and owned release required.",
+  "Metadata": {
+    "AWSToolsMetrics": {
+      "AWSAgentToolkit": "aws-cloudformation@3"
+    }
+  },
+  "Parameters": {
+    "VpcId": {
+      "Type": "AWS::EC2::VPC::Id"
+    },
+    "PrivateSubnetId": {
+      "Type": "AWS::EC2::Subnet::Id"
+    },
+    "EndpointSecurityGroupId": {
+      "Type": "AWS::EC2::SecurityGroup::Id"
+    },
+    "S3PrefixListId": {
+      "Type": "String",
+      "AllowedPattern": "pl-[0-9a-f]+"
+    },
+    "PreparedAmiId": {
+      "Type": "AWS::EC2::Image::Id",
+      "Description": "Reviewed pinned x86_64 AMI with Docker/Python/AWSCLI/SSM/bootstrap and backup timer; no untrusted source or secrets."
+    },
+    "Owner": {
+      "Type": "String",
+      "AllowedPattern": "[0-9a-f]{32}"
+    },
+    "ControlPrivateIp": {
+      "Type": "String",
+      "AllowedPattern": "10\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}"
+    },
+    "ExecutionPrivateIp": {
+      "Type": "String",
+      "AllowedPattern": "10\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}"
+    },
+    "ReleaseBucket": {
+      "Type": "String",
+      "AllowedPattern": "[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]"
+    },
+    "ReleaseKey": {
+      "Type": "String",
+      "AllowedPattern": "releases/[A-Za-z0-9._/-]+\\.tar"
+    },
+    "ReleaseSHA256": {
+      "Type": "String",
+      "AllowedPattern": "[0-9a-f]{64}"
+    },
+    "ControlSecretArn": {
+      "Type": "String",
+      "AllowedPattern": "arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+"
+    },
+    "ExecutionSecretArn": {
+      "Type": "String",
+      "AllowedPattern": "arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+"
+    }
+  },
+  "Resources": {
+    "ControlSG": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Control endpoints admit only authenticated execution TLS; operator API uses SSM loopback.",
+          "must": "Keep private host separation, scoped credentials and retained data; review replacements before execution."
+        }
+      },
+      "Properties": {
+        "GroupDescription": "Private trusted control; no public API or database ingress",
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "DestinationSecurityGroupId": {
+              "Ref": "EndpointSecurityGroupId"
+            }
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "DestinationPrefixListId": {
+              "Ref": "S3PrefixListId"
+            }
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 2049,
+            "ToPort": 2049,
+            "DestinationSecurityGroupId": {
+              "Ref": "RegistrySG"
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "ForgeSwarmOwner",
+            "Value": {
+              "Ref": "Owner"
+            }
+          }
+        ]
+      }
+    },
+    "ExecutionSG": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Only host-managed workers contact broker/RPC; sandbox containers remain network none.",
+          "must": "Keep private host separation, scoped credentials and retained data; review replacements before execution."
+        }
+      },
+      "Properties": {
+        "GroupDescription": "Private executor; no inbound connections",
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "DestinationSecurityGroupId": {
+              "Ref": "EndpointSecurityGroupId"
+            }
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "DestinationPrefixListId": {
+              "Ref": "S3PrefixListId"
+            }
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 4222,
+            "ToPort": 4222,
+            "DestinationSecurityGroupId": {
+              "Ref": "ControlSG"
+            }
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 9090,
+            "ToPort": 9090,
+            "DestinationSecurityGroupId": {
+              "Ref": "ControlSG"
+            }
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 2049,
+            "ToPort": 2049,
+            "DestinationSecurityGroupId": {
+              "Ref": "RegistrySG"
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "ForgeSwarmOwner",
+            "Value": {
+              "Ref": "Owner"
+            }
+          }
+        ]
+      }
+    },
+    "ControlIngress4222": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "No DB/public/SSH ingress.",
+          "must": "Keep private host separation, scoped credentials and retained data; review replacements before execution."
+        }
+      },
+      "Properties": {
+        "GroupId": {
+          "Ref": "ControlSG"
+        },
+        "SourceSecurityGroupId": {
+          "Ref": "ExecutionSG"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": 4222,
+        "ToPort": 4222,
+        "Description": "Verified TLS and worker credentials; execution host only"
+      }
+    },
+    "ControlIngress9090": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "No DB/public/SSH ingress.",
+          "must": "Keep private host separation, scoped credentials and retained data; review replacements before execution."
+        }
+      },
+      "Properties": {
+        "GroupId": {
+          "Ref": "ControlSG"
+        },
+        "SourceSecurityGroupId": {
+          "Ref": "ExecutionSG"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": 9090,
+        "ToPort": 9090,
+        "Description": "Verified TLS and worker credentials; execution host only"
+      }
+    },
+    "Backups": {
+      "Type": "AWS::S3::Bucket",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Encrypted versioned independent retained backups with explicit finite retention.",
+          "must": "Keep private host separation, scoped credentials and retained data; review replacements before execution."
+        }
+      },
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "OwnershipControls": {
+          "Rules": [
+            {
+              "ObjectOwnership": "BucketOwnerEnforced"
+            }
+          ]
+        },
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "DailySevenDays",
+              "Status": "Enabled",
+              "ExpirationInDays": 7,
+              "NoncurrentVersionExpiration": {
+                "NoncurrentDays": 7
+              },
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 1
+              }
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "ForgeSwarmOwner",
+            "Value": {
+              "Ref": "Owner"
+            }
+          }
+        ]
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "BackupPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Reject plaintext backup access.",
+          "must": "Keep private host separation, scoped credentials and retained data; review replacements before execution."
+        }
+      },
+      "Properties": {
+        "Bucket": {
+          "Ref": "Backups"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "Backups",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Sub": "${Backups.Arn}/*"
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ControlRole": {
+      "Type": "AWS::IAM::Role",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Role-specific secret and exact release object only; SSM channel actions require wildcard resource.",
+          "must": "Keep private host separation, scoped credentials and retained data; review replacements before execution."
+        }
+      },
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "ExactRoleAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ssm:UpdateInstanceInformation",
+                    "ssmmessages:CreateControlChannel",
+                    "ssmmessages:CreateDataChannel",
+                    "ssmmessages:OpenControlChannel",
+                    "ssmmessages:OpenDataChannel"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:s3:::${ReleaseBucket}/${ReleaseKey}"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "secretsmanager:GetSecretValue"
+                  ],
+                  "Resource": {
+                    "Ref": "ControlSecretArn"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:PutObject"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "${Backups.Arn}/${Owner}/*"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "ForgeSwarmOwner",
+            "Value": {
+              "Ref": "Owner"
+            }
+          }
+        ]
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "ControlProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Separate host role; no credentials in sandbox images.",
+          "must": "Keep private host separation, scoped credentials and retained data; review replacements before execution."
+        }
+      },
+      "Properties": {
+        "Roles": [
+          {
+            "Ref": "ControlRole"
+          }
+        ]
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "ControlHost": {
+      "Type": "AWS::EC2::Instance",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Private control host; encrypted retained disk; IMDSv2 hop one blocks container metadata. No automatic replacement/HA claim.",
+          "must": "Keep private host separation, scoped credentials and retained data; review replacements before execution."
+        }
+      },
+      "Properties": {
+        "ImageId": {
+          "Ref": "PreparedAmiId"
+        },
+        "InstanceType": "t3.large",
+        "IamInstanceProfile": {
+          "Ref": "ControlProfile"
+        },
+        "NetworkInterfaces": [
+          {
+            "DeviceIndex": "0",
+            "AssociatePublicIpAddress": false,
+            "SubnetId": {
+              "Ref": "PrivateSubnetId"
+            },
+            "PrivateIpAddress": {
+              "Ref": "ControlPrivateIp"
+            },
+            "GroupSet": [
+              {
+                "Ref": "ControlSG"
+              }
+            ]
+          }
+        ],
+        "MetadataOptions": {
+          "HttpTokens": "required",
+          "HttpEndpoint": "enabled",
+          "HttpPutResponseHopLimit": 1,
+          "InstanceMetadataTags": "disabled"
+        },
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/sda1",
+            "Ebs": {
+              "VolumeSize": 40,
+              "VolumeType": "gp3",
+              "Encrypted": true,
+              "DeleteOnTermination": false
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Sub": "#!/bin/sh\nset -eu\numask 077\nexport AWS_DEFAULT_REGION=${AWS::Region}\ninstall -d -m 700 /opt/forgeswarm\ncat > /opt/forgeswarm/release.json <<'FORGESWARM_MANIFEST'\n{\"schema_version\": 1, \"role\": \"control\", \"owner\": \"${Owner}\", \"secret_arn\": \"${ControlSecretArn}\", \"release_bucket\": \"${ReleaseBucket}\", \"release_key\": \"${ReleaseKey}\", \"release_sha256\": \"${ReleaseSHA256}\", \"backup_bucket\": \"${Backups}\", \"provider\": \"scripted_TEST_DEMO\", \"registry_id\": \"${Registry}\", \"registry_access_point\": \"${RegistryAccess}\", \"control_private_ip\": \"${ControlPrivateIp}\"}\nFORGESWARM_MANIFEST\nexec python3 /opt/forgeswarm/deploy/aws/bootstrap.py --role control --manifest /opt/forgeswarm/release.json\n"
+          }
+        },
+        "Tags": [
+          {
+            "Key": "ForgeSwarmOwner",
+            "Value": {
+              "Ref": "Owner"
+            }
+          },
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "forgeswarm-${Owner}-control"
+            }
+          }
+        ]
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "DependsOn": [
+        "RegistryMount",
+        "ControlRegistryPolicy"
+      ]
+    },
+    "ExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Role-specific secret and exact release object only; SSM channel actions require wildcard resource.",
+          "must": "Keep private host separation, scoped credentials and retained data; review replacements before execution."
+        }
+      },
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "ExactRoleAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ssm:UpdateInstanceInformation",
+                    "ssmmessages:CreateControlChannel",
+                    "ssmmessages:CreateDataChannel",
+                    "ssmmessages:OpenControlChannel",
+                    "ssmmessages:OpenDataChannel"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:s3:::${ReleaseBucket}/${ReleaseKey}"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "secretsmanager:GetSecretValue"
+                  ],
+                  "Resource": {
+                    "Ref": "ExecutionSecretArn"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "ForgeSwarmOwner",
+            "Value": {
+              "Ref": "Owner"
+            }
+          }
+        ]
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "ExecutionProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Separate host role; no credentials in sandbox images.",
+          "must": "Keep private host separation, scoped credentials and retained data; review replacements before execution."
+        }
+      },
+      "Properties": {
+        "Roles": [
+          {
+            "Ref": "ExecutionRole"
+          }
+        ]
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "ExecutionHost": {
+      "Type": "AWS::EC2::Instance",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Private execution host; encrypted retained disk; IMDSv2 hop one blocks container metadata. No automatic replacement/HA claim.",
+          "must": "Keep private host separation, scoped credentials and retained data; review replacements before execution."
+        }
+      },
+      "Properties": {
+        "ImageId": {
+          "Ref": "PreparedAmiId"
+        },
+        "InstanceType": "t3.large",
+        "IamInstanceProfile": {
+          "Ref": "ExecutionProfile"
+        },
+        "NetworkInterfaces": [
+          {
+            "DeviceIndex": "0",
+            "AssociatePublicIpAddress": false,
+            "SubnetId": {
+              "Ref": "PrivateSubnetId"
+            },
+            "PrivateIpAddress": {
+              "Ref": "ExecutionPrivateIp"
+            },
+            "GroupSet": [
+              {
+                "Ref": "ExecutionSG"
+              }
+            ]
+          }
+        ],
+        "MetadataOptions": {
+          "HttpTokens": "required",
+          "HttpEndpoint": "enabled",
+          "HttpPutResponseHopLimit": 1,
+          "InstanceMetadataTags": "disabled"
+        },
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/sda1",
+            "Ebs": {
+              "VolumeSize": 40,
+              "VolumeType": "gp3",
+              "Encrypted": true,
+              "DeleteOnTermination": false
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Sub": "#!/bin/sh\nset -eu\numask 077\nexport AWS_DEFAULT_REGION=${AWS::Region}\ninstall -d -m 700 /opt/forgeswarm\ncat > /opt/forgeswarm/release.json <<'FORGESWARM_MANIFEST'\n{\"schema_version\": 1, \"role\": \"execution\", \"owner\": \"${Owner}\", \"secret_arn\": \"${ExecutionSecretArn}\", \"release_bucket\": \"${ReleaseBucket}\", \"release_key\": \"${ReleaseKey}\", \"release_sha256\": \"${ReleaseSHA256}\", \"backup_bucket\": \"${Backups}\", \"provider\": \"scripted_TEST_DEMO\", \"registry_id\": \"${Registry}\", \"registry_access_point\": \"${RegistryAccess}\", \"control_private_ip\": \"${ControlPrivateIp}\"}\nFORGESWARM_MANIFEST\nexec python3 /opt/forgeswarm/deploy/aws/bootstrap.py --role execution --manifest /opt/forgeswarm/release.json\n"
+          }
+        },
+        "Tags": [
+          {
+            "Key": "ForgeSwarmOwner",
+            "Value": {
+              "Ref": "Owner"
+            }
+          },
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "forgeswarm-${Owner}-execution"
+            }
+          }
+        ]
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "DependsOn": [
+        "RegistryMount",
+        "ExecutionRegistryPolicy"
+      ]
+    },
+    "RegistrySG": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Share immutable registry snapshots across separate private hosts; execution receives mount/read permission only.",
+          "must": "Retain encrypted data; IAM-authorized TLS mounts and restricted NFS security groups."
+        }
+      },
+      "Properties": {
+        "GroupDescription": "Only control/execution TLS EFS mount clients",
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 1,
+            "ToPort": 1,
+            "CidrIp": "127.0.0.1/32"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "ForgeSwarmOwner",
+            "Value": {
+              "Ref": "Owner"
+            }
+          }
+        ]
+      }
+    },
+    "RegistryIngress0": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Share immutable registry snapshots across separate private hosts; execution receives mount/read permission only.",
+          "must": "Retain encrypted data; IAM-authorized TLS mounts and restricted NFS security groups."
+        }
+      },
+      "Properties": {
+        "GroupId": {
+          "Ref": "RegistrySG"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": 2049,
+        "ToPort": 2049,
+        "SourceSecurityGroupId": {
+          "Ref": "ControlSG"
+        }
+      }
+    },
+    "RegistryIngress1": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Share immutable registry snapshots across separate private hosts; execution receives mount/read permission only.",
+          "must": "Retain encrypted data; IAM-authorized TLS mounts and restricted NFS security groups."
+        }
+      },
+      "Properties": {
+        "GroupId": {
+          "Ref": "RegistrySG"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": 2049,
+        "ToPort": 2049,
+        "SourceSecurityGroupId": {
+          "Ref": "ExecutionSG"
+        }
+      }
+    },
+    "Registry": {
+      "Type": "AWS::EFS::FileSystem",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Share immutable registry snapshots across separate private hosts; execution receives mount/read permission only.",
+          "must": "Retain encrypted data; IAM-authorized TLS mounts and restricted NFS security groups."
+        }
+      },
+      "Properties": {
+        "Encrypted": true,
+        "PerformanceMode": "generalPurpose",
+        "ThroughputMode": "bursting",
+        "BackupPolicy": {
+          "Status": "ENABLED"
+        },
+        "FileSystemPolicy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "elasticfilesystem:*",
+              "Resource": "*",
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            },
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": [
+                  {
+                    "Fn::GetAtt": [
+                      "ControlRole",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::GetAtt": [
+                      "ExecutionRole",
+                      "Arn"
+                    ]
+                  }
+                ]
+              },
+              "Action": "elasticfilesystem:ClientMount",
+              "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::GetAtt": [
+                    "ControlRole",
+                    "Arn"
+                  ]
+                }
+              },
+              "Action": "elasticfilesystem:ClientWrite",
+              "Resource": "*"
+            }
+          ]
+        },
+        "FileSystemTags": [
+          {
+            "Key": "ForgeSwarmOwner",
+            "Value": {
+              "Ref": "Owner"
+            }
+          }
+        ]
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "RegistryAccess": {
+      "Type": "AWS::EFS::AccessPoint",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Share immutable registry snapshots across separate private hosts; execution receives mount/read permission only.",
+          "must": "Retain encrypted data; IAM-authorized TLS mounts and restricted NFS security groups."
+        }
+      },
+      "Properties": {
+        "FileSystemId": {
+          "Ref": "Registry"
+        },
+        "PosixUser": {
+          "Uid": "10002",
+          "Gid": "10002"
+        },
+        "RootDirectory": {
+          "Path": "/registry",
+          "CreationInfo": {
+            "OwnerUid": "10002",
+            "OwnerGid": "10002",
+            "Permissions": "0750"
+          }
+        }
+      }
+    },
+    "RegistryMount": {
+      "Type": "AWS::EFS::MountTarget",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Share immutable registry snapshots across separate private hosts; execution receives mount/read permission only.",
+          "must": "Retain encrypted data; IAM-authorized TLS mounts and restricted NFS security groups."
+        }
+      },
+      "Properties": {
+        "FileSystemId": {
+          "Ref": "Registry"
+        },
+        "SubnetId": {
+          "Ref": "PrivateSubnetId"
+        },
+        "SecurityGroups": [
+          {
+            "Ref": "RegistrySG"
+          }
+        ]
+      }
+    },
+    "ControlRegistryPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Share immutable registry snapshots across separate private hosts; execution receives mount/read permission only.",
+          "must": "Retain encrypted data; IAM-authorized TLS mounts and restricted NFS security groups."
+        }
+      },
+      "Properties": {
+        "PolicyName": "ScopedSharedRegistry",
+        "Roles": [
+          {
+            "Ref": "ControlRole"
+          }
+        ],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "elasticfilesystem:ClientMount",
+                "elasticfilesystem:ClientWrite"
+              ],
+              "Resource": {
+                "Fn::GetAtt": [
+                  "Registry",
+                  "Arn"
+                ]
+              },
+              "Condition": {
+                "StringEquals": {
+                  "elasticfilesystem:AccessPointArn": {
+                    "Fn::GetAtt": [
+                      "RegistryAccess",
+                      "Arn"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ExecutionRegistryPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Metadata": {
+        "com.aws.cloudformation.Context": {
+          "why": "Share immutable registry snapshots across separate private hosts; execution receives mount/read permission only.",
+          "must": "Retain encrypted data; IAM-authorized TLS mounts and restricted NFS security groups."
+        }
+      },
+      "Properties": {
+        "PolicyName": "ScopedSharedRegistry",
+        "Roles": [
+          {
+            "Ref": "ExecutionRole"
+          }
+        ],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "elasticfilesystem:ClientMount"
+              ],
+              "Resource": {
+                "Fn::GetAtt": [
+                  "Registry",
+                  "Arn"
+                ]
+              },
+              "Condition": {
+                "StringEquals": {
+                  "elasticfilesystem:AccessPointArn": {
+                    "Fn::GetAtt": [
+                      "RegistryAccess",
+                      "Arn"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ControlInstance": {
+      "Value": {
+        "Ref": "ControlHost"
+      }
+    },
+    "ExecutionInstance": {
+      "Value": {
+        "Ref": "ExecutionHost"
+      }
+    },
+    "BackupBucket": {
+      "Value": {
+        "Ref": "Backups"
+      }
+    },
+    "Owner": {
+      "Value": {
+        "Ref": "Owner"
+      }
+    },
+    "Registry": {
+      "Value": {
+        "Ref": "Registry"
+      }
+    }
+  }
+}

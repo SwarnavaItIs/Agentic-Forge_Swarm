@@ -1,0 +1,14 @@
+[Unit]
+Description=ForgeSwarm owned PostgreSQL backup to private versioned S3
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/forgeswarm/deploy/aws/backup.py --manifest /opt/forgeswarm/release.json
+TimeoutStartSec=5min
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes

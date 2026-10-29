@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const Image = "golang:1.26.3-bookworm@sha256:386d475a660466863d9f8c766fec64d7fdad3edac2c6a05020c09534d71edb4b"
+const Image = "golang:1.26.10-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af"
 const MaxFixture = 256 << 10
 const MaxFile = 64 << 10
 const MaxArtifact = 8 << 10

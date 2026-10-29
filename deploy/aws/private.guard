@@ -1,0 +1,21 @@
+let hosts = Resources.*[ Type == 'AWS::EC2::Instance' ]
+rule private_hosts when %hosts !empty {
+    %hosts.Properties.MetadataOptions.HttpTokens == 'required'
+    %hosts.Properties.MetadataOptions.HttpPutResponseHopLimit == 1
+    %hosts.Properties.NetworkInterfaces[*].AssociatePublicIpAddress == false
+    %hosts.Properties.BlockDeviceMappings[*].Ebs.Encrypted == true
+    %hosts.Properties.BlockDeviceMappings[*].Ebs.DeleteOnTermination == false
+    %hosts.DeletionPolicy == 'Retain'
+}
+let buckets = Resources.*[ Type == 'AWS::S3::Bucket' ]
+rule private_backups when %buckets !empty {
+    %buckets.Properties.PublicAccessBlockConfiguration.BlockPublicAcls == true
+    %buckets.Properties.PublicAccessBlockConfiguration.BlockPublicPolicy == true
+    %buckets.Properties.VersioningConfiguration.Status == 'Enabled'
+    %buckets.DeletionPolicy == 'Retain'
+}
+let registry = Resources.*[ Type == 'AWS::EFS::FileSystem' ]
+rule encrypted_registry when %registry !empty {
+    %registry.Properties.Encrypted == true
+    %registry.DeletionPolicy == 'Retain'
+}

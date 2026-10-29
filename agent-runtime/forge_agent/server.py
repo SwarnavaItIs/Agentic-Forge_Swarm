@@ -90,9 +90,25 @@ def runtime_server(provider: Provider, token: str) -> Any:
     return server
 
 
+def runtime_token() -> str:
+    token = os.environ.get("AGENT_RUNTIME_TOKEN", "")
+    path = os.environ.get("AGENT_RUNTIME_TOKEN_FILE", "")
+    if path:
+        if token:
+            raise ValueError("ambiguous runtime credential configuration")
+        with open(path, encoding="ascii") as source:
+            raw = source.read(258)
+        if len(raw) > 257:
+            raise ValueError("runtime credential file exceeds limit")
+        token = raw.removesuffix("\n")
+    if not 32 <= len(token) <= 256 or any(value in token for value in "\r\n\x00"):
+        raise ValueError("bounded runtime credential required")
+    return token
+
+
 async def serve() -> None:
     setup_telemetry()
-    token = os.environ.get("AGENT_RUNTIME_TOKEN", "")
+    token = runtime_token()
     selected = os.environ.get("AGENT_PROVIDER", "disabled")
     provider: Provider = Disabled()
     if selected == "scripted_TEST_DEMO":
