@@ -1,16 +1,43 @@
+# Local environment files. Keep examples available in a fresh checkout.
 .env
+.env.*
+!.env.example
+!.env.*.example
+
+# Local state, build products, and logs.
 .cache/
-bin/
+/bin/
+*.log
+*.tmp
+
+# Python environments and tool caches.
 __pycache__/
+*.py[cod]
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
 .venv/
+venv/
 pytest-cache-files-*/
-# Generated sanitized evidence: verification replaces the latest run; retain locally
-# until the next run, export externally if needed. Never commit command logs.
-artifacts/verification/
-web/node_modules/
-web/dist/
-web/test-results/
-web/playwright-report/
+.coverage
+.coverage.*
+htmlcov/
+
+# Dashboard dependencies and build/test output.
+node_modules/
+/web/dist/
+/web/coverage/
+/web/test-results/
+/web/playwright-report/
+*.tsbuildinfo
+
+# Editor and OS files.
+.idea/
+.vscode/
+*.code-workspace
+*.swp
+.DS_Store
+Thumbs.db
+
+# Verification evidence stays on the machine that produced it.
+/artifacts/verification/

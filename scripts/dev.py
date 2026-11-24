@@ -369,6 +369,7 @@ def fmt_check():
 
 def main():
     global RECORD
+    (ROOT / ".cache/go-tmp").mkdir(parents=True, exist_ok=True)
     if len(sys.argv)>1 and sys.argv[1] in {"verify-stage-10", "verify-all", "verify-resume", "demo", "demo-live", "platform-up", "platform-down", "performance", "deployment-validate", "deployment-preview"}:
         import stage10
         stage10.command(sys.argv[1]);return
@@ -385,7 +386,6 @@ def main():
         import stage06
         stage06.command(sys.argv[1]);return
     os.chdir(ROOT)
-    (ROOT / ".cache/go-tmp").mkdir(parents=True, exist_ok=True)
     command = sys.argv[1] if len(sys.argv) == 2 else "help"
     if command in {"verify-stage-05","sandbox-prepare","sandbox-fixture","sandbox-demo","sandbox-test"}:
         import stage05

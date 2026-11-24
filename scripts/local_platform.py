@@ -324,7 +324,11 @@ def create(stable=False):
         secret("worker-"+suffix+"-token", keys["worker_"+suffix])
     secret("operator-auth.json", json.dumps({"operator": {"actor": "local-owner", "token": secrets.token_hex(32)}, "reader": {"actor": "local-observer", "token": secrets.token_hex(32)}}))
     secret("github.json", json.dumps({"repository": {"id": 42, "owner": "fixture-owner", "name": "math-fixture", "target_branch": "main"}, "credential_mode": "TEST_DEMO", "token": "TEST_DEMO_NO_REAL_GITHUB_CREDENTIAL", "webhook_secret": "TEST_DEMO_WEBHOOK_SECRET_NOT_FOR_REAL_GITHUB", "trigger_label": "forgeswarm", "trigger_actor": "fixture-owner", "test_api_url": "http://127.0.0.1:9088"}))
-    dev.run([dev.BIN.parent/("tlsgen.exe" if os.name == "nt" else "tlsgen"), "-out", assets/"tls"], label="installation-private-ca")
+    tlsgen = dev.BIN.parent/("tlsgen.exe" if os.name == "nt" else "tlsgen")
+    if not tlsgen.is_file():
+        tlsgen.parent.mkdir(exist_ok=True)
+        dev.run(["go", "build", "-o", tlsgen, "./cmd/tlsgen"], label="build-tlsgen")
+    dev.run([tlsgen, "-out", assets/"tls"], label="installation-private-ca")
     for key in (assets/"tls").glob("*-key.pem"):
         if key.name != "ca-key.pem":
             os.chmod(key, 0o644)
