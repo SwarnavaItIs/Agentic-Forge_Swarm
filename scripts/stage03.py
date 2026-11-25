@@ -301,9 +301,8 @@ def smoke(recovery=False):
             dev.poll(lambda:sum(logs(name).count('"msg":"worker_claim_deferred"') for name in keys)>before,"transient claim delayed without acknowledgment")
             dev.run(["docker","start",db],label="process-db-recovery")
             dev.poll(db_ready,"database recovery")
-            # pg_isready checks the local DB socket. The API pool may still be
-            # reconnecting, and a different pooled connection can still return
-            # 503 after the readiness probe succeeds.
+            # PostgreSQL accepts TCP connections again, but the API pool may
+            # still be reconnecting and return 503 on another pooled connection.
             dev.poll(api_ready,"distributed API reconnect after database outage")
             finish(unavailable,recovering_db=True)
             recovered_attempts=count(unavailable)

@@ -99,7 +99,9 @@ def database():
              "-e", "POSTGRES_PASSWORD=forgeswarm_test", "-e", f"POSTGRES_DB={dbname}", IMAGE],
             timeout=240, label="disposable-db")
         def is_ready():
-            code, _ = run(["docker", "exec", name, "pg_isready", "-U", "forgeswarm", "-d", dbname],
+            # The image's init server only listens on a Unix socket. Wait for
+            # the final TCP listener used by the smoke and integration clients.
+            code, _ = run(["docker", "exec", name, "pg_isready", "-h", "127.0.0.1", "-U", "forgeswarm", "-d", dbname],
                           timeout=5, check=False, quiet=True, label="db-poll")
             return code == 0
         poll(is_ready, "disposable PostgreSQL")
