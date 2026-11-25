@@ -107,6 +107,7 @@ def verify(resume=False):
         runtime_image = stage06.prepare_runtime()
         assert stage06.prepare_runtime() == runtime_image, "identical runtime preparation invalidated an active image ID"
         with local_platform.isolated() as session:
+            fault_fixture = stage10_checks.register_fault_fixture(session)
             session.up(2)
             results["authenticated_https_complete_compose"] = "passed"
             print("Stage 10: Compose demo and browser checks", flush=True)
@@ -114,7 +115,7 @@ def verify(resume=False):
             stage10_checks.browser(session)
             results["deterministic_demo_and_browser"] = "passed"
             print("Stage 10: fault injection and soak", flush=True)
-            stage10_checks.faults(session)
+            stage10_checks.faults(session, fault_fixture)
             stage10_checks.soak(session)
             results["faults_and_bounded_soak"] = "passed"
             print("Stage 10: backup and restore", flush=True)

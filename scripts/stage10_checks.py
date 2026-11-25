@@ -6,6 +6,8 @@ Never import this module to authorize a real repository or paid model call.
 import concurrent.futures
 import hashlib
 import json
+import os
+import re
 import subprocess
 import time
 import uuid
@@ -128,7 +130,36 @@ def demo(session):
     return root
 
 
-def faults(session):
+def register_fault_fixture(session):
+    folder = session.path/"sandbox-fault-repository"
+    folder.mkdir()
+    (folder/"go.mod").write_text("module forgeswarm-fault-fixture\n\ngo 1.26.3\n", encoding="utf-8")
+    (folder/"fault_test.go").write_text('''package fixture
+
+import (
+    "testing"
+    "time"
+)
+
+func TestObservedSandbox(t *testing.T) {
+    time.Sleep(8 * time.Second)
+}
+''', encoding="utf-8")
+    env = dev.ENV | {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0"}
+    git = ["git", "-C", folder, "-c", "core.hooksPath="+str(dev.ROOT/".cache/no-hooks"), "-c", "core.fsmonitor=false", "-c", "core.autocrlf=false"]
+    dev.run([*git, "init"], env=env, quiet=True, label="fault-fixture-init")
+    dev.run([*git, "add", "--", "go.mod", "fault_test.go"], env=env, quiet=True, label="fault-fixture-index")
+    dev.run([*git, "-c", "user.name=ForgeSwarm Fixture", "-c", "user.email=fixture@localhost", "commit", "-m", "Bounded sandbox fault fixture"], env=env, quiet=True, label="fault-fixture-commit")
+    _, revision = dev.run([*git, "rev-parse", "HEAD"], env=env, quiet=True, label="fault-fixture-revision")
+    registry = session.assets/"fixtures"
+    _, output = dev.run(["go", "run", "./cmd/sandbox-fixture", "-registry", registry, "-repository", folder, "-revision", revision.strip()], env=env, quiet=True, label="fault-fixture-register")
+    fixture = output.strip()
+    assert re.fullmatch(r"[0-9a-f]{64}", fixture), "fault fixture registration returned an invalid ID"
+    (registry/(fixture+".json")).chmod(0o644)
+    return fixture
+
+
+def faults(session, fixture):
     proofs = [recover_worker(session, pause=True)]
     completed = session.submit(delay(100))
     assert session.settle(completed)["status"] == "SUCCEEDED"
@@ -144,22 +175,23 @@ def faults(session):
         assert graph["status"] in {"SUCCEEDED", "FAILED"} and len(records) <= 3
         assert session.graph(completed)["status"] == "SUCCEEDED"
         proofs.append({"fault": role+"_SIGKILL_restart", "id": identifier, "status": graph["status"], "attempts": records})
-    # Terminate an actual controlled compiler sandbox, scoped to this workflow.
-    fixture = next((session.assets/"fixtures").glob("*.json")).stem
-    # This public fixture is a package-main test library without func main;
-    # go test compiles it correctly, whereas go build would intentionally fail.
-    body = {"name": "owned sandbox termination", "timeout_ms": 120000, "tasks": [{"key": "test", "kind": "sandbox_go", "max_attempts": 2, "sandbox": {"schema_version": 1, "fixture_id": fixture, "command": "test"}}]}
+    # The dedicated test process leaves time to observe and kill this exact
+    # container even with a warm Go build cache.
+    body = {"name": "owned sandbox termination", "timeout_ms": 120000, "tasks": [{"key": "test", "kind": "sandbox_go", "max_attempts": 1, "sandbox": {"schema_version": 1, "fixture_id": fixture, "command": "test"}}]}
     identifier = session.submit(body)
     container = []
     def sandbox():
-        _, text = dev.run(["docker", "ps", "-q", "--filter", "label=forgeswarm.installation="+str(uuid.UUID(session.owner)), "--filter", "label=forgeswarm.workflow="+identifier, "--filter", "label=forgeswarm.resource=sandbox-v1"], quiet=True)
-        container[:] = text.split()
+        _, output = dev.run(["docker", "ps", "-q", "--no-trunc", "--filter", "label=forgeswarm.installation="+str(uuid.UUID(session.owner)), "--filter", "label=forgeswarm.workflow="+identifier, "--filter", "label=forgeswarm.resource=sandbox-v1"], quiet=True)
+        container[:] = output.split()
+        if not container:
+            graph = session.graph(identifier)
+            assert graph["status"] not in {"SUCCEEDED", "FAILED", "CANCELLED"}, f"sandbox fixture settled as {graph['status']} before fault injection"
         return bool(container)
     dev.poll(sandbox, "owned active sandbox to terminate", timeout=30)
     assert len(container) == 1
     dev.run(["docker", "kill", container[0]], label="owned-sandbox-kill")
     graph = session.settle(identifier)
-    assert graph["status"] in {"FAILED", "SUCCEEDED"}
+    assert graph["status"] == "FAILED", f"interrupted sandbox unexpectedly settled as {graph['status']}"
     fresh = session.submit(body)
     assert session.settle(fresh)["status"] == "SUCCEEDED"
     # Stage04 deliberately retains LOST diagnostic stop uncertainty when its
