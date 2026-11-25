@@ -94,18 +94,25 @@ class Observer:
 
 def k6(session, count, folder):
     folder.mkdir(parents=True)
+    # Without DAC override, the generator needs the bind directory's identity.
+    owner = folder.stat()
+    user = f"{owner.st_uid}:{owner.st_gid}"
     # Local Linux k6 shares the owned API network namespace. SSL_CERT_FILE is
     # honored by the Linux Go verifier; no insecureSkipTLSVerify is used.
     namespace = session.container("github-test")
     env = dev.ENV|{"BENCH_TOKEN": session.tokens["operator"]["token"], "BENCH_COUNT": str(count), "BENCH_RUN": uuid.uuid4().hex, "BENCH_URL": "https://127.0.0.1:8443", "BENCH_HOST": "127.0.0.1:"+str(session.document["ports"]["API_PORT"])}
-    args = ["docker", "run", "--rm", "--name", "forgeswarm-k6-"+env["BENCH_RUN"], "--label", "forgeswarm.performance="+session.owner, "--platform", "linux/amd64", "--pull=never", "--network", "container:"+namespace, "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges=true", "--memory=192m", "--cpus=0.5", "--pids-limit=64", "--user", "0:0", "--tmpfs=/tmp:rw,nosuid,nodev,size=16777216", "--mount", "type=bind,source="+str(dev.ROOT/"performance")+",target=/scenarios,readonly", "--mount", "type=bind,source="+str(folder)+",target=/results", "--mount", "type=bind,source="+str(session.assets/"tls/ca.pem")+",target=/ca.pem,readonly", "-e", "SSL_CERT_FILE=/ca.pem", "-e", "K6_NO_USAGE_REPORT=true"]
+    args = ["docker", "run", "--rm", "--name", "forgeswarm-k6-"+env["BENCH_RUN"], "--label", "forgeswarm.performance="+session.owner, "--platform", "linux/amd64", "--pull=never", "--network", "container:"+namespace, "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges=true", "--memory=192m", "--cpus=0.5", "--pids-limit=64", "--user", user, "--tmpfs=/tmp:rw,nosuid,nodev,size=16777216", "--mount", "type=bind,source="+str(dev.ROOT/"performance")+",target=/scenarios,readonly", "--mount", "type=bind,source="+str(folder)+",target=/results", "--mount", "type=bind,source="+str(session.assets/"tls/ca.pem")+",target=/ca.pem,readonly", "-e", "SSL_CERT_FILE=/ca.pem", "-e", "K6_NO_USAGE_REPORT=true"]
     for key in ["BENCH_TOKEN", "BENCH_COUNT", "BENCH_RUN", "BENCH_URL", "BENCH_HOST"]:
         args += ["-e", key]
     args += [K6, "run", "--no-usage-report", "--log-format=json", "--log-output=file=/results/submissions.log", "--out=json=/results/k6-raw.jsonl", "/scenarios/diagnostic.js"]
     started = time.monotonic()
-    exit_code, _ = dev.run(args, env=env, timeout=80, check=False, quiet=True, label="bounded-k6-submissions")
+    exit_code, output = dev.run(args, env=env, timeout=80, check=False, quiet=True, label="bounded-k6-submissions")
+    log = folder/"submissions.log"
+    if not log.is_file():
+        detail = output.replace(env["BENCH_TOKEN"], "[REDACTED]").strip()[-1000:]
+        raise RuntimeError(f"k6 exited {exit_code} without writing {log.name}: {detail}")
     records = []
-    for line in (folder/"submissions.log").read_text().splitlines():
+    for line in log.read_text(encoding="utf-8").splitlines():
         value = json.loads(line)
         message = value.get("msg", "")
         if message.startswith('{"schema_version":1'):
@@ -216,14 +223,24 @@ def point(session, count, workers, folder):
     observed = [value for value in observer.samples if "api" in value]
     assert observed, "resource measurements unavailable; no successful benchmark claim"
     final = session.request("/v1/diagnostics", reader=True)[1]
-    after_histograms = exported_histograms(session)
+    after_histograms, process_latencies = [], {}
+
+    def fresh_process_samples():
+        nonlocal after_histograms, process_latencies
+        after_histograms = exported_histograms(session)
+        process_latencies = histogram_deltas(before_histograms, after_histograms)
+        return all(process_latencies.get(name, {}).get("count", 0) > 0
+                   for name in ("scheduler_scan", "database_query", "pool_acquire"))
+
+    # Export and scrape are asynchronous, especially for the shortest point.
+    # Wait outside the measured workload and keep requiring all three signals.
+    dev.poll(fresh_process_samples, "fresh scheduler, query and pool timing samples", timeout=12)
     result = {"schema_version": 1, "scenario_version": SPEC["version"], "intended_submissions": count, "observed_responses": len(submitted["records"]), "omitted_results": count-len(submitted["records"]), "http_statuses": dict(statuses), "database_accepted": len(submitted["accepted"]), "initial_201": statuses.get("201", 0), "rejections_429": statuses.get("429", 0), "workflow_outcomes": dict(outcomes), "api_ms_all_observed_statuses": eval_report.quantiles([v["duration_ms"] for v in submitted["records"]]), "api_p99_ms": percentile([v["duration_ms"] for v in submitted["records"]], .99), "queue_delay_seconds": eval_report.quantiles(queue), "queue_delay_samples": len(queue), "attempts": len(rows), "logical_tasks": sum(len(v["nodes"]) for v in graphs.values()), "attempts_per_second": len(rows)/duration, "logical_tasks_per_second": sum(len(v["nodes"]) for v in graphs.values())/duration, "wall_seconds_including_observation": duration, "workers": workers, "slots_per_worker": 1, "resource_samples": len(observed), "peak_owned_container_rss_bytes": max((v["container_rss_bytes"] for v in observed), default=None), "final_diagnostics": final, "stop_condition": observer.failure, "goals": SPEC["predeclared_goals"], "goal_results": {"admission_p95": percentile([v["duration_ms"] for v in submitted["records"]], .95) <= 250, "admission_p99": percentile([v["duration_ms"] for v in submitted["records"]], .99) <= 1000, "accepted_terminal": complete == len(submitted["accepted"]), "cleanup": final["database"]["cleanup_backlog"] == 0}, "limitations": ["One host, bounded diagnostic diamond, closed-loop submissions; not a production arrival-rate estimate.", "API latency includes 429 and failed responses; missing latencies stay unknown. Throughput wall time includes observer overhead.", "Completed tasks are distinct from attempts. Warmup data is excluded from workload denominators."]}
     result["api_ms_all_observed_statuses"]["p99"] = result["api_p99_ms"]
     result["task_outcomes"] = dict(collections.Counter(task["status"] for value in graphs.values() for task in value["nodes"]))
     result["attempt_outcomes"] = dict(collections.Counter(row["attempt"]["state"] for row in rows))
-    result["process_latencies"] = histogram_deltas(before_histograms, after_histograms)
+    result["process_latencies"] = process_latencies
     assert len(queue) == len(rows), "missing generation-bound queue measurements"
-    assert all(result["process_latencies"].get(name, {}).get("count", 0) > 0 for name in ["scheduler_scan", "database_query", "pool_acquire"]), "required process timing samples unavailable"
     leases, pending, ages = [], [], []
     for sample in observed:
         points = {(p["Name"], p["Label"]): p["Value"] for p in sample["api"]["database"]["operational"]["Points"]}
