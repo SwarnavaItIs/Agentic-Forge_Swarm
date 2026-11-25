@@ -6,7 +6,7 @@ The local demo uses vetted Go fixtures, a scripted provider, and a fake GitHub a
 
 ## Run locally
 
-Install Git, Docker with the Compose plugin and a Linux engine, Go `1.26.10`, Python `3.12.10`, Node.js `24.16.0` with npm, and uv `0.13.0`. On Windows, start Docker Desktop in Linux container mode. The first run needs network access for pinned dependencies and images. Run commands from the repository root.
+Install Git, Docker with the Compose plugin and a Linux engine, Go `1.26.11`, Python `3.12.10`, Node.js `24.16.0` with npm, and uv `0.13.0`. On Windows, start Docker Desktop in Linux container mode. The first run needs network access for pinned dependencies and images. Run commands from the repository root.
 
 ```sh
 python scripts/dev.py demo

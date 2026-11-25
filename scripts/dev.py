@@ -1,4 +1,4 @@
-"""Cross-platform stage-01 commands. Python 3.10+, Go 1.26.10, Docker required.
+"""Cross-platform stage-01 commands. Python 3.10+, Go 1.26.11, Docker required.
 
 Only uniquely named, labelled verification containers are deleted. Development
 Compose storage is persistent, and db-down never uses --volumes. Verification
@@ -29,13 +29,13 @@ if hasattr(sys.stdout, "reconfigure"):
 
 ROOT = Path(__file__).resolve().parent.parent
 IMAGE = "postgres:17.11-bookworm@sha256:66aafa11cf15800a3c94763f7e11d1e7b2e37e5e84bc4ce027cb6e1e4bfaf4df"
-GO_IMAGE = "golang:1.26.10-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af"
+GO_IMAGE = "golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0"
 BIN = ROOT / "bin" / ("api.exe" if os.name == "nt" else "api")
 EVIDENCE = ROOT / "artifacts/verification/stage-01"
 ENV = os.environ.copy()
 ENV.update({"GOCACHE": str(ROOT / ".cache/go-build"), "GOMODCACHE": str(ROOT / ".cache/go-mod"),
             "GOPATH": str(ROOT / ".cache/gopath"), "GOTMPDIR": str(ROOT / ".cache/go-tmp"),
-            "GOENV": "off", "GOTOOLCHAIN": "go1.26.10", "GOMAXPROCS": "2", "GOFLAGS": "-p=2"})
+            "GOENV": "off", "GOTOOLCHAIN": "go1.26.11", "GOMAXPROCS": "2", "GOFLAGS": "-p=2"})
 COMMANDS = []
 RECORD = False
 
@@ -415,7 +415,7 @@ def main():
               "Performance: 10/50/100/500 closed-loop diagnostic submissions, max 10 VUs, bounded quotas; 50 at one/two workers.\n"
               "Goals are declared in performance/scenarios.json; raw JSON/CSV retained under ignored stage-10 evidence.\n"
               "Deployment: deployment-validate (offline); deployment-preview (instructions only). No automatic provisioning/deletion.\n"
-              "Migrate additive 00010 before role upgrade. Compiler/tool images use Go 1.26.10; fixture minimum stays 1.26.3.\n"
+              "Migrate additive 00010 before role upgrade. Compiler/tool images use Go 1.26.11; fixture minimum stays 1.26.3.\n"
               "Live publication remains github-live-demo with exact recorded approval/repository guards; no paid calls in demo.\n")
         print("demo-live: requires existing explicit spend/repository authority, LIVE_DEMO_AUTHORIZATION_FILE, LIVE_DEMO_URL, LIVE_RUNTIME_PROVIDER=openai, LIVE_DEMO_CONFIRM=existing-session-authorized-spend, OPERATOR_AUTH_FILE, AGENT_PRICING_FILE, GITHUB_CONFIG_FILE and GITHUB_LIVE_ISSUE_NUMBER.\n"
               "For HTTPS set LIVE_DEMO_CA_FILE. Full project estimate is durably reserved against an explicit total cap before admission. Interrupted locks/unknown charges require manual reconciliation. This command never approves or publishes.\n")
@@ -513,7 +513,7 @@ def main():
               "help, db-up, db-down (keeps data), migrate-up, migrate-status, run, fmt, vet, test,\n"
               "test-race, test-integration (requires Docker; never skips), build, smoke, verify-stage-01,\n"
               "verify-stage-02, run-scheduler\n"
-              "Go 1.26.10, Python 3.10+, Docker Linux engine required; Linux hosts also need a C compiler.\n"
+              "Go 1.26.11, Python 3.10+, Docker Linux engine required; Linux hosts also need a C compiler.\n"
               "Windows race tests use a pinned Linux Go container; smoke tests run Linux API containers.\n"
               "Set env vars from .env.example; API does not automatically load .env or migrate.\n"
               "Stage 02: migrate-up, upgrade API, then run-scheduler; never mix the old API with the new scheduler.\n"

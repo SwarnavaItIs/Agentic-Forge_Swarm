@@ -29,7 +29,10 @@ def run():
             findings.append(item["finding"])
     reachable = sorted({v["osv"] for v in findings if v.get("trace") and v["trace"][0].get("function")})
     residual = sorted({v["osv"] for v in findings} - set(reachable))
-    assert value.returncode == 0 and not reachable, "reachable Go vulnerabilities; inspect structured evidence"
+    if value.returncode != 0:
+        raise RuntimeError(f"govulncheck failed (exit {value.returncode}); inspect go-raw.jsonl")
+    if reachable:
+        raise RuntimeError("reachable Go vulnerabilities: " + ", ".join(reachable))
     audits = {}
     for label, args in [("npm-runtime", ["--omit=dev"]), ("npm-all", [])]:
         code, output = dev.run([stage07.NPM, "audit", "--json", "--prefix", "web", *args], env=stage07.WEB_ENV, timeout=120, check=False, quiet=True, label=label)
@@ -48,7 +51,11 @@ def run():
     code, output = dev.run([python, "-m", "pip_audit", "-r", "agent-runtime/requirements.lock", "--disable-pip", "--no-deps", "-f", "json"], env=environment, timeout=120, check=False, quiet=True, label="python-runtime-audit")
     result = json.loads(output[output.index("{"):])
     (folder/"python-runtime.json").write_text(json.dumps(result, indent=2)+"\n")
-    assert code == 0 and not any(v.get("vulns") for v in result["dependencies"])
+    python_findings = sorted({vuln["id"] for dep in result["dependencies"] for vuln in dep.get("vulns", [])})
+    if python_findings:
+        raise RuntimeError("Python runtime vulnerabilities: " + ", ".join(python_findings))
+    if code != 0:
+        raise RuntimeError(f"pip-audit failed (exit {code}); inspect python-runtime.json")
     # Check only secret signatures in repository-owned source/config. Report
     # paths/hashes, never matching bytes. Generated fixture strings are public.
     import re

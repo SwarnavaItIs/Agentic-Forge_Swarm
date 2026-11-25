@@ -175,6 +175,11 @@ def smoke(recovery=False):
                 # no global process/database termination or production policy.
                 sql(f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='{session}' AND datname=current_database() AND pid<>pg_backend_pid()")
                 sql(f"DROP TRIGGER IF EXISTS {gate} ON tasks; DROP FUNCTION IF EXISTS {gate}()")
+        def api_ready():
+            try:
+                return transport.request(base,"/health/ready")[0]==200
+            except OSError:
+                return False
         def start(name):
             nonlocal base
             role="worker" if name.startswith("worker_") else "scheduler" if name.startswith("scheduler") else name
@@ -199,10 +204,7 @@ def smoke(recovery=False):
                 transport.bind(container)
                 _,port=dev.run(["docker","port",container,"8080/tcp"],quiet=True,label="process-api-port")
                 base=transport.base
-                def ready():
-                    try:return transport.request(base,"/health/ready")[0]==200
-                    except OSError:return False
-                dev.poll(ready,"distributed API ready")
+                dev.poll(api_ready,"distributed API ready")
         def stop(name,killed=False):
             container=processes[name]
             dev.run(["docker","kill","--signal","KILL",container] if killed else ["docker","stop","--timeout","10",container],label="process-kill" if killed else "process-drain")
@@ -211,16 +213,22 @@ def smoke(recovery=False):
             assert exit_code.strip()==("137" if killed else "0"), name+" did not stop correctly"
             if not killed and name.startswith("worker_"):assert '"msg":"worker_drained"' in out
             remove(container,token);del processes[name]
-        def graph(receipt):
+        def graph(receipt,recovering_db=False):
             code,value,_=transport.request(base,"/v1/workflows/"+receipt["id"]+"/graph")
-            assert code==200
+            if recovering_db and code==503:
+                return None
+            assert code==200, f"workflow graph returned HTTP {code}"
             return value
         def create(key,tasks):
             body=json.dumps({"name":key,"tasks":tasks}).encode()
             code,receipt,_=transport.request(base,"/v1/workflows","POST",body,key)
             assert code==201
             return receipt,body
-        def finish(receipt):dev.poll(lambda:graph(receipt)["status"]=="SUCCEEDED","accepted diagnostic results",timeout=45)
+        def finish(receipt,recovering_db=False):
+            def succeeded():
+                value=graph(receipt,recovering_db=recovering_db)
+                return value is not None and value["status"]=="SUCCEEDED"
+            dev.poll(succeeded,"accepted diagnostic results",timeout=45)
         def count(receipt,condition="true"):
             workflow_id=str(uuid.UUID(receipt["id"]))
             return int(sql(f"SELECT count(*) FROM task_attempts WHERE workflow_id='{workflow_id}' AND ({condition})"))
@@ -291,8 +299,15 @@ def smoke(recovery=False):
             dev.run(["docker","stop","--timeout","5",db],label="process-db-before-claim-outage")
             for name in keys:dev.run(["docker","kill","--signal","CONT",processes[name]],label="process-resume-worker")
             dev.poll(lambda:sum(logs(name).count('"msg":"worker_claim_deferred"') for name in keys)>before,"transient claim delayed without acknowledgment")
-            dev.run(["docker","start",db],label="process-db-recovery");dev.poll(db_ready,"database recovery")
-            finish(unavailable);assert count(unavailable)==1
+            dev.run(["docker","start",db],label="process-db-recovery")
+            dev.poll(db_ready,"database recovery")
+            # pg_isready checks the local DB socket. The API pool may still be
+            # reconnecting, and a different pooled connection can still return
+            # 503 after the readiness probe succeeds.
+            dev.poll(api_ready,"distributed API reconnect after database outage")
+            finish(unavailable,recovering_db=True)
+            recovered_attempts=count(unavailable)
+            assert recovered_attempts==1, f"DB outage recovery created {recovered_attempts} attempts; expected one"
             record("DB outage before claim and real message recovery",unavailable)
 
             cancelled,_=create("active-cancel",[{"key":"a","kind":"delay","delay_ms":10000}]);running_owner(cancelled)

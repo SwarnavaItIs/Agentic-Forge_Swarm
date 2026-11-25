@@ -79,7 +79,7 @@ def prepare():
         dev.run(["docker", "pull", DOCKER_CLI], timeout=240, label="trusted-cli-pinned-pull")
     tag = "forgeswarm-platform:"+current
     dev.run(["docker", "build", "--platform", "linux/amd64", "--network", "none", "--pull=false", "-t", tag, context], timeout=180, label="trusted-role-image")
-    value = {"input_sha256": current, "platform_image": tag, "runtime_image": runtime, "execution_image": execution["execution_image"], "go_toolchain": "1.26.10", "prepared_at": dev.timestamp()}
+    value = {"input_sha256": current, "platform_image": tag, "runtime_image": runtime, "execution_image": execution["execution_image"], "go_toolchain": "1.26.11", "prepared_at": dev.timestamp()}
     record.write_text(json.dumps(value, indent=2)+"\n")
     return value
 

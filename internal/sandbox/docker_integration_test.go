@@ -225,8 +225,26 @@ func TestDockerRepresentativeCPUAndPIDAndOOM(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			args := d.createArgs(r)
-			args = args[:len(args)-1]
-			args = append(args, "probe", mode)
+			if mode == "memory" {
+				// Keep the cgroup alive after the allocator exits so the test can
+				// read the kernel counters directly. Docker updates OOMKilled
+				// separately from the exit event.
+				args = args[:len(args)-4]
+				args = append(args, "--entrypoint", "/bin/sh", r.Image, "-c", `set -eu
+memory_event() {
+    awk -v event="$1" '$1 == event {print $2; found = 1} END {if (!found) exit 1}' /sys/fs/cgroup/memory.events.local
+}
+oom_before=$(memory_event oom)
+kills_before=$(memory_event oom_kill)
+status=0
+/usr/local/bin/forgeswarm-sandbox probe memory || status=$?
+test "$status" -eq 137
+test "$(memory_event oom)" -gt "$oom_before"
+test "$(memory_event oom_kill)" -gt "$kills_before"
+echo MEMORY_ENFORCED`)
+			} else {
+				args = append(args[:len(args)-1], "probe", mode)
+			}
 			body, err := dockerCall(ctx, nil, 1024, args...)
 			if err != nil {
 				t.Fatal(err)
@@ -248,11 +266,7 @@ func TestDockerRepresentativeCPUAndPIDAndOOM(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if mode == "memory" {
-				if !after.State.OOMKilled || after.State.ExitCode != 137 {
-					t.Fatalf("bounded OOM not enforced: %+v", after.State)
-				}
-			} else if startErr != nil || after.State.ExitCode != 0 || !strings.Contains(string(out), "ENFORCED") {
+			if startErr != nil || after.State.Running || after.State.ExitCode != 0 || !strings.Contains(string(out), strings.ToUpper(mode)+"_ENFORCED") {
 				t.Fatalf("%s: %s %+v %v", mode, out, after.State, startErr)
 			}
 		})
