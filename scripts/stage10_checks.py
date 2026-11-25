@@ -208,36 +208,56 @@ def soak(session):
 
 
 def restore(session):
-    # Real demo creates artifacts before backup. Stop trusted roles to prevent
-    # split-brain when recovering the copied database; source DB stays intact.
+    # Stop scheduling and interrupt the exact owner before draining other
+    # writers. A graceful worker stop can finish the task before the backup.
     active = session.submit(delay())
     running(session, active)
+    initial = attempts(session, active)
+    assert len(initial) == 1 and initial[0]["state"] == "RUNNING", "restore fixture must have exactly one running attempt"
+    interrupted = initial[0]
+    owner = interrupted["worker_id"]
+    assert owner in {"worker_a", "worker_b"}, "restore fixture must run on an owned worker"
+    attempt_id = uuid.UUID(interrupted["id"])
     session.close_client()
-    session.run("stop", "runtime_a", "runtime_b", "worker_a", "worker_b", "scheduler", "coordinator", "relay", "publisher", "api", timeout=60, quiet=True)
-    before = session.sql("SELECT json_build_object('workflows',(SELECT count(*) FROM workflows),'artifacts',(SELECT count(*) FROM sandbox_artifacts),'bodies',(SELECT COALESCE(json_agg(encode(sha256(body),'hex') ORDER BY id),'[]') FROM sandbox_artifacts))")
-    expected = json.loads(before)
+    session.run("stop", "--timeout", "3", "scheduler", timeout=20, quiet=True)
+    session.run("kill", "-s", "SIGKILL", owner, timeout=20, label="restore-interrupt-owned-worker")
+    session.run("stop", "runtime_a", "runtime_b", "worker_a", "worker_b", "coordinator", "relay", "publisher", "api", timeout=60, quiet=True)
+    attempt_state = f"SELECT state FROM task_attempts WHERE id='{attempt_id}'"
+    snapshot_state = session.sql(attempt_state)
+    assert snapshot_state == "RUNNING", f"restore source must preserve the interrupted attempt as RUNNING, observed {snapshot_state or 'missing'}"
+    inventory = "SELECT json_build_object('workflows',(SELECT count(*) FROM workflows),'artifacts',(SELECT count(*) FROM sandbox_artifacts),'bodies',(SELECT COALESCE(json_agg(encode(sha256(body),'hex') ORDER BY id),'[]') FROM sandbox_artifacts))"
+    expected = json.loads(session.sql(inventory))
     assert expected["artifacts"] > 0, "backup must contain actual execution artifacts"
     db = session.container("db")
     backup = session.path/"database.dump"
     with backup.open("wb") as output:
         result = subprocess.run(["docker", "exec", db, "pg_dump", "-U", "forgeswarm", "-d", "forgeswarm", "-Fc", "--no-owner", "--no-acl"], stdout=output, stderr=subprocess.PIPE, timeout=45)
-    assert result.returncode == 0 and backup.stat().st_size < 64 << 20
+    assert result.returncode == 0, f"owned pg_dump exited with {result.returncode}"
+    assert 0 < backup.stat().st_size < 64 << 20, "owned backup size outside bounds"
     restored = "forgeswarm_restore_"+uuid.uuid4().hex[:12]
     session.sql("CREATE DATABASE "+restored)
     with backup.open("rb") as source:
         result = subprocess.run(["docker", "exec", "-i", db, "pg_restore", "-U", "forgeswarm", "-d", restored, "--no-owner", "--no-acl", "--exit-on-error"], stdin=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
-    assert result.returncode == 0
-    assert json.loads(session.sql("SELECT json_build_object('workflows',(SELECT count(*) FROM workflows),'artifacts',(SELECT count(*) FROM sandbox_artifacts),'bodies',(SELECT COALESCE(json_agg(encode(sha256(body),'hex') ORDER BY id),'[]') FROM sandbox_artifacts))", restored)) == expected
+    assert result.returncode == 0, f"owned pg_restore exited with {result.returncode}"
+    assert json.loads(session.sql(inventory, restored)) == expected, "restored workflow counts or artifact digests differ from source"
+    assert session.sql(attempt_state, restored) == "RUNNING", "restored dump lost the running attempt"
     secret = session.assets/"database-url"
     old = secret.read_text()
-    assert "/forgeswarm?" in old
+    assert "/forgeswarm?" in old, "restore must start with the original disposable database"
     secret.write_text(old.replace("/forgeswarm?", "/"+restored+"?"))
     session.up(2)
     graph = session.settle(active)
-    assert graph["status"] == "SUCCEEDED" and any(v["state"] == "LOST" for v in attempts(session, active))
-    assert int(session.sql("SELECT count(*) FROM workflows", "forgeswarm")) == expected["workflows"]
-    assert json.loads(session.sql("SELECT COALESCE(json_agg(encode(sha256(body),'hex') ORDER BY id),'[]') FROM sandbox_artifacts", restored)) == expected["bodies"]
-    save("restore.json", {"at": dev.timestamp(), "backup_sha256": hashlib.sha256(backup.read_bytes()).hexdigest(), "backup_bytes": backup.stat().st_size, "source_preserved": True, "separate_restored_database": restored, "expected": expected, "recovered_workflow_id": active, "recovered_status": graph["status"], "artifacts_rehashed": True, "private_backup_reference": str(backup.relative_to(dev.ROOT))})
+    assert graph["status"] == "SUCCEEDED", f"restored workflow settled as {graph['status']}"
+    history = attempts(session, active)
+    old_attempts = [v for v in history if v["id"] == str(attempt_id)]
+    succeeded = [v for v in history if v["state"] == "SUCCEEDED"]
+    assert len(old_attempts) == 1 and old_attempts[0]["state"] == "LOST", "restored scheduler did not mark the interrupted attempt LOST"
+    assert len(succeeded) == 1 and succeeded[0]["generation"] > interrupted["generation"], "restored workflow did not succeed on exactly one replacement generation"
+    assert session.sql(attempt_state, "forgeswarm") == "RUNNING", "restore changed the original attempt"
+    assert session.sql(attempt_state, restored) == "LOST", "restored database did not record the interrupted attempt as LOST"
+    assert json.loads(session.sql(inventory, "forgeswarm")) == expected, "restore changed the original database inventory or artifact digests"
+    assert json.loads(session.sql(inventory, restored)) == expected, "restored database inventory or artifact digests changed during recovery"
+    save("restore.json", {"at": dev.timestamp(), "backup_sha256": hashlib.sha256(backup.read_bytes()).hexdigest(), "backup_bytes": backup.stat().st_size, "source_preserved": True, "separate_restored_database": restored, "expected": expected, "recovered_workflow_id": active, "recovered_status": graph["status"], "interrupted_attempt_id": str(attempt_id), "replacement_attempt_id": succeeded[0]["id"], "artifacts_rehashed": True, "private_backup_reference": str(backup.relative_to(dev.ROOT))})
 
 
 def browser(session):

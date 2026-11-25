@@ -9,6 +9,7 @@ import hashlib
 import os
 import subprocess
 import sys
+import traceback
 
 import dev
 
@@ -108,22 +109,31 @@ def verify(resume=False):
         with local_platform.isolated() as session:
             session.up(2)
             results["authenticated_https_complete_compose"] = "passed"
+            print("Stage 10: Compose demo and browser checks", flush=True)
             stage10_checks.demo(session)
             stage10_checks.browser(session)
             results["deterministic_demo_and_browser"] = "passed"
+            print("Stage 10: fault injection and soak", flush=True)
             stage10_checks.faults(session)
             stage10_checks.soak(session)
             results["faults_and_bounded_soak"] = "passed"
+            print("Stage 10: backup and restore", flush=True)
             stage10_checks.restore(session)
             results["migrations_backup_restore"] = "passed"
+            print("Stage 10: performance scenarios", flush=True)
             performance.run(session)
             results["performance_matrix_and_worker_comparison"] = "passed"
         dev.run(["git", "diff", "--check"], label="final-diff-check")
         if dev.fingerprint() != source:
             raise RuntimeError("Source changed during final checks; rerun on frozen inputs")
     except Exception as error:
-        record("implemented_unverified", results, error)
-        raise
+        location = traceback.extract_tb(error.__traceback__)[-1]
+        detail = dev.sanitize(str(error))
+        diagnostic = f"{type(error).__name__} in {os.path.basename(location.filename)}:{location.lineno}"
+        if detail:
+            diagnostic += ": " + detail
+        record("implemented_unverified", results, diagnostic)
+        raise RuntimeError(diagnostic) from error
     record("verified_local", results)
     print("Stage 10 verified locally; paid providers, actual demo PR and AWS deployment remain unverified.", flush=True)
 
